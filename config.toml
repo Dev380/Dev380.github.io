@@ -1,0 +1,18 @@
+base_url = "https://Dev380.github.io"
+# Dunno how to make home page show this as title so imma do this ig
+title = "Hello there 👋"
+description = "Some random ramblings"
+default_language = "en"
+theme = "no-style-please"
+generate_feed = true
+feed_filename = "rss.xml"
+compile_sass = true
+build_search_index = false
+
+[markdown]
+highlight_code = true
+# I love solarized!
+highlight_theme = "solarized-light"
+
+[extra]
+logo = "/images/Dev380.png"

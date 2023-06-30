@@ -1,0 +1,45 @@
+@import "../themes/no-style-please/sass/style.scss";
+
+$background: #fdf6e3;
+
+@font-face {
+	font-family: "Iosevka";
+	src: asset-url("/fonts/iosevka-nerd.ttf") format("truetype");
+	font-weight: normal;
+	font-style: normal;
+}
+
+code {
+	color: #657b83;
+	background: $background;
+}
+
+.w {
+	max-width: 800px;
+}
+
+body {
+	font-family: Iosevka;
+}
+
+
+pre {
+  padding: 1rem;
+  overflow: auto;
+}
+// The line numbers already provide some kind of left/right padding
+pre[data-linenos] {
+  padding: 1rem 0;
+}
+pre table td {
+  padding: 0;
+}
+// The line number cells
+pre table td:nth-of-type(1) {
+  text-align: center;
+  user-select: none;
+}
+pre table {
+  width: 100%;
+  border-collapse: collapse;
+}
