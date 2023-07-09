@@ -434,3 +434,8 @@ It should work...
 And according to `tcpdump`, it does!
 
 Thanks for reading, don't miss my next article where I'll be making a port scanner with raw sockets :D
+
+{{ hr(data_content="addendum") }}
+After I switched out the hardcoded values for automatic detection, I've published the code!
+
+Repo here: https://github.com/Dev380/simpleping-rust
