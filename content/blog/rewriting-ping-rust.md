@@ -438,4 +438,4 @@ Thanks for reading, don't miss my next article where I'll be making a port scann
 {{ hr(data_content="addendum") }}
 After I switched out the hardcoded values for automatic detection, I've published the code!
 
-Repo here: https://github.com/Dev380/simpleping-rust
+Repo [here](https://github.com/Dev380/simpleping-rust)
