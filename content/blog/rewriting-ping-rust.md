@@ -1,6 +1,6 @@
 +++
 title = "Rewriting ping in Rust (am I stupid?)"
-date = 2023-07-07
+date = 2023-07-09
 template = "blog.html"
 +++
 
