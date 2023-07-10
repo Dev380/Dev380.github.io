@@ -4,7 +4,7 @@ $background: #fdf6e3;
 
 @font-face {
 	font-family: "Iosevka";
-	src: asset-url("/fonts/iosevka-nerd.ttf") format("truetype");
+	src: url("/fonts/iosevka-regular.ttf") format("truetype");
 	font-weight: normal;
 	font-style: normal;
 }
