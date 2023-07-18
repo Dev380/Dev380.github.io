@@ -1,0 +1,5 @@
+{% extends "no-style-please/templates/base.html" %}
+{% block css %}
+ <link rel="preload" href="/fonts/iosevka-regular.woff2" as="font" type="font/woff2" crossorigin>
+ <link rel="stylesheet" href="{{ get_url(path='style.css', trailing_slash=false) | safe }}"/>
+{% endblock css %}
