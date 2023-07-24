@@ -2,7 +2,7 @@
 description = "My little corner of the web"
 +++
 
-Hi, I'm Dev380!
+***REMOVED***
 
 - about
   - [github](https://github.com/Dev380)
