@@ -2,7 +2,7 @@
 description = "My little corner of the web"
 +++
 
-Hi, I'm Dev380!
+Hi, I'm Dev380! I'm interested in security, networking and low-level programming. In High School working on an IB diploma. Still exploring the world.
 
 - about
   - [github](https://github.com/Dev380)
