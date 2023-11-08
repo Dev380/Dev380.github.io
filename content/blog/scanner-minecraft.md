@@ -1440,7 +1440,246 @@ The fuzzing should run after a normal `cargo test`.
 
 {{ hr(data_content="the minecraft protocol - can't scan minecraft servers without it!") }}
 The scanner in `main.rs` currently doesn't do much scanning at all - it just sends an HTTP request.
+The minecraft protocol is documented by the community at [wiki.vg](https://wiki.vg/) which says there two types of pings - 1.6 and below, and 1.7+ (after the netcode was rewritten to use netty).
+Previous scanners seem to use the 1.7+ ping because most servers use it - however, taking advantage of diminishing returns from reducing round-trips after the one round trip forces us to deal with all sorts of complications, we can first send a 1.6 ping (which the wiki says all servers should respond to) then send a 1.7 ping latter.
+So, let's implement 1.6 first:
+```rust
+const MINECRAFT_1_6_PING: [u8; 26] = [
+    0xfe, 0x01, 0xfa, 0x00, 0x0b, 0x00, 0x4d, 0x00, 0x43, 0x00, 0x7c, 0x00, 0x50, 0x00, 0x69, 0x00,
+    0x6e, 0x00, 0x67, 0x00, 0x48, 0x00, 0x6f, 0x00, 0x73, 0x00,
+];
+const PROTOCOL_VER_1_6: u16 = 76;
 
+// https://wiki.vg/Server_List_Ping#1.6
+/// Builds a 1.6 or earlier legacy server list ping packet
+pub fn construct_1_6_ping(hostname: &str, port: u16) -> Vec<u8> {
+    let encoded_string = hostname
+        .encode_utf16()
+        .flat_map(|unit: u16| unit.to_be_bytes())
+        .collect::<Vec<u8>>();
+    let mut ping_vec: Vec<u8> =
+        Vec::with_capacity(MINECRAFT_1_6_PING.len() + encoded_string.len() + 7);
+
+    // Header
+    ping_vec[0..MINECRAFT_1_6_PING.len()].copy_from_slice(&MINECRAFT_1_6_PING);
+    // Length of rest of message: 7 + len(hostname)
+    ping_vec[MINECRAFT_1_6_PING.len()..MINECRAFT_1_6_PING.len() + 2]
+        .copy_from_slice(&(encoded_string.len() as u16 + 7).to_be_bytes());
+    // Protocol version
+    ping_vec[MINECRAFT_1_6_PING.len() + 2..MINECRAFT_1_6_PING.len() + 4]
+        .copy_from_slice(&PROTOCOL_VER_1_6.to_be_bytes());
+    // Length of hostname
+    ping_vec[MINECRAFT_1_6_PING.len() + 2..MINECRAFT_1_6_PING.len() + 4]
+        .copy_from_slice(&(encoded_string.len() as u16).to_be_bytes());
+    // Hostname
+    let four_before_end = ping_vec.len() - 4;
+    ping_vec[MINECRAFT_1_6_PING.len() + 4..four_before_end].copy_from_slice(&encoded_string);
+    // Port
+    ping_vec[four_before_end..].copy_from_slice(&(port as i32).to_be_bytes()); // Mojang is quirky and decides ports are C ints now
+
+    ping_vec
+}
+```
+All this does is add the ping header, the protocol version, the hostname and the port together. Technically only the first three bytes are needed for any server to respond (nothing else is actually used) - but just in case (for example some strange custom servers on a crusade to enforce client protocol compliance), the full header is included. I don't think the one allocation will be a bottleneck, and better not to do premature optimization. However, if it indeed improves performance, sending just the three bytes could have the potential to greatly improve performance.
+
+The 1.7 ping is similar:
+```rust
+const NETTY_STATUS_ID: u8 = 0;
+const NETTY_PROTOCOL_VER: u8 = 0;
+const STATUS_REQUEST_STATE: u8 = 1;
+
+// https://wiki.vg/Server_List_Ping#Current_.281.7.2B.29
+/// Constructs a 1.7+ netty minecraft SLP packet
+pub fn construct_netty_ping(hostname: &str, port: u16) -> Vec<u8> {
+    let mut ping_vec: Vec<u8> = Vec::with_capacity(hostname.len() + 5);
+
+    ping_vec[0] = NETTY_STATUS_ID;
+    ping_vec[1] = NETTY_PROTOCOL_VER;
+    ping_vec[2..hostname.len() + 2].copy_from_slice(hostname.as_bytes());
+
+    let server_port_slice = ping_vec.len() - 3..ping_vec.len() - 1;
+    ping_vec[server_port_slice].copy_from_slice(&port.to_be_bytes());
+
+    let last_element = ping_vec.len();
+    ping_vec[last_element] = STATUS_REQUEST_STATE;
+
+    ping_vec
+}
+```
+
+Pretty much the same data is sent.
+
+Now onto receiving, let's define the data structures we want first:
+```rust
+#[derive(Debug, Clone)]
+pub enum MinecraftSlp {
+    Legacy(LegacyPingResponse),
+    Netty(NettyPingResponse),
+}
+
+#[derive(Debug, Clone)]
+pub struct LegacyPingResponse {
+    pub protocol_version: Option<i64>,
+    pub server_version: Option<String>,
+    pub motd: Option<String>,
+    pub current_players: Option<i64>,
+    pub max_players: Option<i64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct NettyPingResponse {
+    version_name: Option<String>,
+    protocol: Option<i64>,
+    max_players: Option<i64>,
+    online_players: Option<i64>,
+    online_sample: Vec<Player>,
+    motd: Option<String>,
+    enforces_secure_chat: Option<bool>,
+    previews_chat: Option<bool>,
+    favicon: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Player {
+    name: Option<String>,
+    id: Option<String>,
+}
+```
+
+The idea is for the SLPs to try to be deserialized with both the 1.6 and 1.7 deserializers in succession, so no state is required to be stored. You can read more on the wiki, but the jist of the 1.6 ping response is it's just a packed structure of info:
+```rust
+/// Processes a server's 1.6 or earlier legacy ping response
+pub fn process_server_1_6_ping(packet: &[u8]) -> Option<LegacyPingResponse> {
+    // Check 0xFF packet ID
+    if packet.first()? != &0xff {
+        return None;
+    }
+
+    // Check §1\x00\x00 magic string
+    if packet.get(3..9)? != [00, 167, 00, 31, 00, 00] {
+        return None;
+    }
+
+    let null_delim_string = NullDelimitedString::new(bytemuck::pod_align_to(packet.get(9..)?).1);
+    let info_string = null_delim_string.fields();
+
+    Some(LegacyPingResponse {
+        protocol_version: info_string
+            .get(0)
+            .map(|s| String::from_utf16(s))
+            .and_then(Result::ok)
+            .and_then(|s| s.parse().ok()),
+        server_version: info_string.get(1).and_then(|s| String::from_utf16(s).ok()),
+        motd: info_string.get(1).and_then(|s| String::from_utf16(s).ok()),
+        current_players: info_string
+            .get(3)
+            .and_then(|s| String::from_utf16(s).ok())
+            .and_then(|s| s.parse().ok()),
+        max_players: info_string
+            .get(4)
+            .and_then(|s| String::from_utf16(s).ok())
+            .and_then(|s| s.parse().ok()),
+    })
+}
+
+// 16 bit word string composed of fields separated by \x00\x00 that the legacy ping uses
+struct NullDelimitedString<'a> {
+    data: &'a [u16],
+    counter: usize,
+}
+
+impl<'a> NullDelimitedString<'a> {
+    fn new(data: &'a [u16]) -> Self {
+        NullDelimitedString { data, counter: 0 }
+    }
+
+    // Convert into \x00\x00 separated fields
+    fn fields(&self) -> Vec<&[u16]> {
+        let mut fields = Vec::with_capacity(5); // 5 fields in a correctly formed legacy ping response
+
+        self.data
+            .split(|&c| c == 0x00)
+            .for_each(|field| fields.push(field));
+
+        fields
+    }
+}
+```
+
+And the 1.7 structure is just json:
+
+```rust
+/// Processes a 1.7+ netty SLP response
+/// Needs mutability for simd_json performance
+pub fn process_server_netty_ping(packet: &mut [u8]) -> Option<NettyPingResponse> {
+    // Check packet ID
+    if packet.first()? != &NETTY_STATUS_ID {
+        return None;
+    }
+
+    // The next 1-2 bytes are a length field as a varint (so if the first bit of the first byte is set then it's two bytes)
+    let string_start_index = if packet.get(1)? & 0b10000000 == 0 {
+        2
+    } else {
+        3
+    };
+    let json_response = simd_json::to_borrowed_value(packet.get_mut(string_start_index..)?).ok()?;
+    let json_response = json_response.as_object()?;
+
+    let version_object = json_response.get("version");
+    let version_object = version_object.as_object();
+
+    let players_object = json_response.get("players");
+    let players_object = players_object.as_object();
+
+    Some(NettyPingResponse {
+        version_name: version_object
+            .and_then(|version| version.get("name"))
+            .and_then(ValueAccess::as_str)
+            .map(str::to_owned),
+        protocol: version_object.and_then(|version| version.get("protocol")?.as_i64()),
+        max_players: players_object.and_then(|players| players.get("max")?.as_i64()),
+        online_players: players_object.and_then(|players| players.get("online")?.as_i64()),
+        online_sample: players_object
+            .and_then(|players| players.get("sample"))
+            .and_then(ValueAccess::as_array)
+            .map(|players_array| {
+                players_array
+                    .iter()
+                    .map(|player| Player {
+                        name: player
+                            .get("name")
+                            .and_then(ValueAccess::as_str)
+                            .map(str::to_owned),
+                        id: player
+                            .get("id")
+                            .and_then(ValueAccess::as_str)
+                            .map(str::to_owned),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        motd: json_response
+            .get("description")
+            .and_then(ValueAccess::as_str)
+            .map(str::to_owned),
+        enforces_secure_chat: json_response
+            .get("enforcesSecureChat")
+            .and_then(ValueAccess::as_bool),
+        previews_chat: json_response
+            .get("previewsChat")
+            .and_then(ValueAccess::as_bool),
+        favicon: json_response
+            .get("favicon")
+            .and_then(ValueAccess::as_str)
+            .map(str::to_owned),
+    })
+}
+```
+
+The transmitting and receiving is easy from there - the most interesting part is getting around the lack of concurrent transmitting in the socket api using parking synchronization (so just a glorified dataless mutex). This is not an issue with receiving because (at least with ethernet) receivers are physically separate cables so concurrent use is allowed.
+
+*Not continued! - I don't see a point to finishing unless someone wants to buy me a VPS to join the hundreds of servers scanning Minecraft servers already, but you're welcome to try completing it - all the "hard parts" are done.*
 
 {{ hr(data_content="future ideas") }}
 Assorted thoughts on extending this scanner
