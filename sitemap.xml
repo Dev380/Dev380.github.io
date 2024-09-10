@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+    <url>
+        <loc>https://Dev380.github.io/</loc>
+    </url>
+    <url>
+        <loc>https://Dev380.github.io/blog/</loc>
+    </url>
+    <url>
+        <loc>https://Dev380.github.io/blog/crashing-ratrater/</loc>
+        <lastmod>2023-06-29</lastmod>
+    </url>
+    <url>
+        <loc>https://Dev380.github.io/blog/rewriting-ping-rust/</loc>
+        <lastmod>2023-07-09</lastmod>
+    </url>
+    <url>
+        <loc>https://Dev380.github.io/blog/scanner-minecraft/</loc>
+        <lastmod>2023-07-12</lastmod>
+    </url>
+</urlset>

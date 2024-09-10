@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta content="IE=edge" http-equiv="X-UA-Compatible"/>
+        <meta content="text/html; charset=UTF-8" http-equiv="content-type"/>
+        <meta content="width=device-width, initial-scale=1" name="viewport"/>
+
+        
+        
+        
+
+        
+
+        
+        
+        
+
+        
+        
+        
+
+        
+        
+        
+
+        <title>Rewriting ping in Rust (am I stupid?)</title>
+        
+        <meta name="title" content="Rewriting ping in Rust (am I stupid?)">
+        
+        <meta name="description" content="Some random ramblings">
+        <meta name="generator" content="Zola v0.16.1">
+
+        <meta property="og:type" content="website">
+        <meta property="og:url" content="https://Dev380.github.io/blog/rewriting-ping-rust/">
+        <meta property="og:site_name" content="Hello there 👋">
+        <meta property="og:title" content="Rewriting ping in Rust (am I stupid?)">
+        <meta property="og:description" content="Some random ramblings">
+        <meta property="og:image" content="https:&#x2F;&#x2F;Dev380.github.io&#x2F;images&#x2F;Dev380.png">
+
+        
+        
+        <meta property="twitter:card" content="summary_large_image">
+        <meta property="twitter:url" content="https://Dev380.github.io/blog/rewriting-ping-rust/">
+        <meta property="twitter:title" content="Rewriting ping in Rust (am I stupid?)">
+        <meta property="twitter:description" content="Some random ramblings">
+        <meta property="twitter:image" content="https:&#x2F;&#x2F;Dev380.github.io&#x2F;images&#x2F;Dev380.png">
+        
+        
+        <link rel="canonical" href="https://Dev380.github.io/blog/rewriting-ping-rust/">
+        <link rel="shortcut icon" type="image/x-icon" href="https://Dev380.github.io/images/Dev380.png">
+        <script type="application/ld+json">
+            {
+                "description":"Some random ramblings",
+                "url":"https://Dev380.github.io/blog/rewriting-ping-rust/",
+                "@type":"WebSite",
+                "headline":"Rewriting ping in Rust (am I stupid?)",
+                "name":"Rewriting ping in Rust (am I stupid?)",
+                
+                "@context":"https://schema.org"
+            }
+        </script>
+        
+        
+        
+        <link rel="alternate" type="application/atom+xml" title="RSS" href="https://Dev380.github.io/atom.xml">
+        
+        
+        
+<link rel="preload" href="https://Dev380.github.io/style.css" as="style" crossorigin>
+ <link rel="preload" href="/fonts/iosevka-regular.woff2" as="font" type="font/woff2" crossorigin>
+ <link rel="stylesheet" href="https://Dev380.github.io/style.css"/>
+
+    </head>
+    <body theme="auto">
+        <div class="w">
+            <header>
+                
+                
+<p><a href="..">..</a>/rewriting-ping-rust</p>
+<p class="post-meta"><time datetime="2023-07-09">2023-07-09</time></p>
+<h1>Rewriting ping in Rust (am I stupid?)</h1>
+
+            </header>
+            <main class="page-content" aria-label="Content">
+                
+
+
+
+<hr data-content="please read, I promise I&#x27;ll look idiotic in the middle" \>
+<p>Doing something I've wanted to do for a while, and (hopefully) fixing a Rust crate along the way! I've always wanted to create a simple ICMP utility in Rust to practice working with C/C++ interop and the Linux <a href="https://www.man7.org/linux/man-pages/man7/raw.7.html">raw sockets API</a>. I've had this project idea in a while, and when I get sudden bursts of motivation I try to start it. Alas, I run into the same problem each time: no errors are thrown, I believe my ICMP packets are well-formed, but I never receive a reply! Planning to write down my thoughts in a blog helps my systemize my thoughts, so I thought I'd try again after creating this. This time, I will aim to follow a C++ implementation that functions above <a href="https://en.wikipedia.org/wiki/Network_layer">layer 3</a>, and if that works, &quot;lower&quot; my way down to sending raw ethernet frames directly copied to my network card with <code>AF_PACKET</code>.</p>
+<p><hr data-content="the strat" \>
+I'll be looking at the excellent <a href="https://github.com/quangIO/SimplePing">SimplePing</a> to help me figure out userspace networking, which works perfectly fine on my system:</p>
+<pre style="background-color:#fdf6e3;color:#657b83;"><code><span>SimplePing on master via △ v3.26.4 took 4s
+</span><span>❯ sudo build/simpleping 1.1.1.1
+</span><span>[sudo] password for Dev380:
+</span><span>PING 1.1.1.1 (1.1.1.1)
+</span><span>Received reply: seq=1 rrt=8.88096ms
+</span><span>Received reply: seq=2 rrt=6.80691ms
+</span><span>Received reply: seq=3 rrt=6.3636ms
+</span><span>Received reply: seq=4 rrt=6.92877ms
+</span><span>^C⏎
+</span></code></pre>
+<p>Rust is a data-driven language, so I'd like to create structs with all the necessary information to represent IPv4 ICMP packets.</p>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#268bd2;">struct </span><span style="color:#b58900;">Icmp </span><span>{
+</span><span>    </span><span style="color:#268bd2;">header</span><span>: IcmpHeader,
+</span><span>    </span><span style="color:#268bd2;">payload</span><span>: </span><span style="color:#859900;">Vec</span><span>&lt;</span><span style="color:#268bd2;">u8</span><span>&gt;,
+</span><span>}
+</span><span>
+</span><span style="color:#268bd2;">struct </span><span style="color:#b58900;">IcmpHeader </span><span>{
+</span><span>    </span><span style="color:#268bd2;">identifier</span><span>: </span><span style="color:#268bd2;">u16</span><span>,
+</span><span>    </span><span style="color:#268bd2;">sequence</span><span>: </span><span style="color:#268bd2;">u16</span><span>,
+</span><span>}
+</span></code></pre>
+<p>By the way, an ICMP echo request (ping) looks like this:
+<img src="/images/icmp_echo_format.png" alt="ICMP echo header and payload" />
+Read this from left to right, top to bottom. The first two lines (or 8 bytes) are the ICMP header, and the rest is the payload, which can be any arbitrary data to be returned by the server (Windows uses the alphabet, for example). The identifier is used to distinguish between multiple ping programs running from the same IP, and the sequence is used to distinguish between different echo requests sent by the same program, but they can be set to anything.</p>
+<p>To be useful, the structs need to be able to be converted into byte slices, so let's implement them here:</p>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#268bd2;">impl </span><span style="color:#b58900;">Icmp </span><span>{
+</span><span>    </span><span style="color:#268bd2;">fn </span><span style="color:#b58900;">as_bytes</span><span>(</span><span style="color:#859900;">&amp;</span><span style="color:#268bd2;">self</span><span>) -&gt; [</span><span style="color:#268bd2;">u8</span><span>; </span><span style="color:#6c71c4;">12</span><span>] {
+</span><span>        </span><span style="color:#268bd2;">let </span><span style="color:#586e75;">mut</span><span> bytes = [</span><span style="color:#6c71c4;">0</span><span>; </span><span style="color:#6c71c4;">12</span><span>];
+</span><span>        </span><span style="color:#268bd2;">let</span><span> header = </span><span style="color:#d33682;">self</span><span>.header.</span><span style="color:#859900;">as_bytes</span><span>();
+</span><span>        bytes[</span><span style="color:#6c71c4;">0</span><span style="color:#859900;">..</span><span style="color:#6c71c4;">8</span><span>].</span><span style="color:#859900;">copy_from_slice</span><span>(</span><span style="color:#859900;">&amp;</span><span>header);
+</span><span>        bytes[</span><span style="color:#6c71c4;">8</span><span style="color:#859900;">..</span><span style="color:#6c71c4;">12</span><span>].</span><span style="color:#859900;">copy_from_slice</span><span>(</span><span style="color:#859900;">&amp;</span><span style="color:#d33682;">self</span><span>.payload);
+</span><span>        bytes
+</span><span>    }
+</span><span>}
+</span><span>
+</span><span style="color:#268bd2;">impl </span><span style="color:#b58900;">IcmpHeader </span><span>{
+</span><span>    </span><span style="color:#268bd2;">fn </span><span style="color:#b58900;">as_bytes</span><span>(</span><span style="color:#859900;">&amp;</span><span style="color:#268bd2;">self</span><span>) -&gt; [</span><span style="color:#268bd2;">u8</span><span>; </span><span style="color:#6c71c4;">8</span><span>] {
+</span><span>        </span><span style="color:#268bd2;">let </span><span style="color:#586e75;">mut</span><span> header = [</span><span style="color:#6c71c4;">0</span><span>; </span><span style="color:#6c71c4;">8</span><span>];
+</span><span>        header[</span><span style="color:#6c71c4;">0</span><span>] = </span><span style="color:#cb4b16;">ECHO_REQUEST</span><span>;
+</span><span>        header[</span><span style="color:#6c71c4;">4</span><span style="color:#859900;">..</span><span style="color:#6c71c4;">6</span><span>].</span><span style="color:#859900;">copy_from_slice</span><span>(</span><span style="color:#859900;">&amp;</span><span style="color:#d33682;">self</span><span>.identifier.</span><span style="color:#859900;">to_be_bytes</span><span>());
+</span><span>        header[</span><span style="color:#6c71c4;">6</span><span style="color:#859900;">..</span><span style="color:#6c71c4;">8</span><span>].</span><span style="color:#859900;">copy_from_slice</span><span>(</span><span style="color:#859900;">&amp;</span><span style="color:#d33682;">self</span><span>.sequence.</span><span style="color:#859900;">to_be_bytes</span><span>());
+</span><span>
+</span><span>        </span><span style="color:#93a1a1;">// Setting the checksum
+</span><span>        </span><span style="color:#268bd2;">let</span><span> checksum = internet_checksum::checksum(</span><span style="color:#859900;">&amp;</span><span>header);
+</span><span>        header[</span><span style="color:#6c71c4;">2</span><span style="color:#859900;">..</span><span style="color:#6c71c4;">4</span><span>].</span><span style="color:#859900;">copy_from_slice</span><span>(</span><span style="color:#859900;">&amp;</span><span>checksum);
+</span><span>        header
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>I set the Icmp return type to <code>[u8;12]</code>, forcing the data payload size to be 4. I probably should have done it correctly, but I'm just prototyping right now and an actually good ICMP program isn't the point of this toy program anyway. I used the <code>internet-checksum</code> crate instead of implementing by own <a href="https://en.wikipedia.org/wiki/Internet_checksum">internet checksum</a> implementation, because although the implementation is simple (add together each 2 byte pair as a 16 bit integer while allowing overflow, and invert all the bits at the end) the crates <a href="https://docs.rs/internet-checksum/latest/internet_checksum/">docs</a> claim that many optimizations (I think they even use SIMD) can be made over a naive implementation.</p>
+<p>Anyway, here's the fun part: using raw sockets to actually send our ICMP echo. I'll be using the <a href="https://docs.rs/nix/latest/nix/">nix</a> crate for this because it provides nice, safe wrappers around libc APIs (for example, having to cast around raw pointers to weird types like <code>sockaddr_in</code> does not seem applying or very idiomatic to me), unlike the <code>libc</code> crate. Everything of interest will be in the <code>nix::sys::socket</code> module, and of course, we'll be calling the <code>socket</code> function to initialize our raw socket:</p>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#268bd2;">fn </span><span style="color:#b58900;">main</span><span>() {
+</span><span>    </span><span style="color:#268bd2;">let</span><span> icmp_header = IcmpHeader {
+</span><span>        identifier: </span><span style="color:#6c71c4;">69</span><span>,
+</span><span>        sequence: </span><span style="color:#6c71c4;">420</span><span>,
+</span><span>    };
+</span><span>    </span><span style="color:#268bd2;">let</span><span> icmp = Icmp {
+</span><span>        header: icmp_header,
+</span><span>        payload: </span><span style="color:#859900;">vec!</span><span>[</span><span style="color:#6c71c4;">1</span><span>,</span><span style="color:#6c71c4;">2</span><span>,</span><span style="color:#6c71c4;">3</span><span>,</span><span style="color:#6c71c4;">4</span><span>]
+</span><span>    };
+</span><span>
+</span><span>    </span><span style="color:#268bd2;">let</span><span> socket = socket::socket(AddressFamily::Inet, SockType::Raw, SockFlag::empty(), SockProtocol).</span><span style="color:#859900;">unwrap</span><span>();
+</span></code></pre>
+<p>First, the header is initialized with random values (it can be any value, so this is fine) and a payload.</p>
+<p><hr data-content="oh no, my crate doesn&#x27;t support what I want to do" \>
+In my <a href="https://lib.rs/crates/bacon">bacon</a> window (I just learned of this tool, and it's pretty cool), it shows that this didn't compile. That's because <code>SockProtocol</code> is a type from the <code>nix::sys::socket</code> module, and I was stuck on what its value should be. The main problem here lies in in the <code>nix</code> <a href="https://github.com/nix-rust/nix/blob/469032433d68841ad098f03aa2b28e81235b8be8/CONVENTIONS.md">API conventions</a>:</p>
+<blockquote>
+<p>Enumerations: We represent sets of constants that are intended as mutually exclusive arguments to parameters of functions by enumerations.</p>
+</blockquote>
+<p>Unfortunately, this means that the protocol number (which Linux uses to match what packets we should receive, although that isn't very important for this program), which is a 32 bit C-style integer in the <a href="https://www.man7.org/linux/man-pages/man2/socket.2.html">C API</a>, is just an enum:
+<img src="/images/sockprotocol_enum.png" alt="oh no" />
+Unfortunately, ICMP is not in this enum yet. This is unfortunate, and many people have tried to fix this in the past. Alas, more serious problems have come up than a kid trying to remake <code>ping</code>. The protocol value for IPv4 (ie the internet protocol most of use) is not <a href="https://github.com/nix-rust/nix/issues/1953">in this enum</a> either, its number of 8 being reserved for <a href="https://github.com/nix-rust/nix/pull/1289">netlink</a>. The enum abstraction over what is, ultimately, an integer passed to a syscall has drawn concern over it being impossible for multiple protocols to share a number, and to <a href="https://github.com/nix-rust/nix/issues/1903">implement custom protocol numbers</a>. Unfortunately, when I had the misfortune of dealing with this, it remained unfixed. I would prefer if <code>SockProtocol</code> looked like this:</p>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#586e75;">pub </span><span style="color:#268bd2;">struct </span><span style="color:#b58900;">SockProtocol</span><span>(pub </span><span style="color:#268bd2;">i32</span><span>);
+</span><span>
+</span><span style="color:#268bd2;">impl </span><span style="color:#b58900;">SockProtocol </span><span>{
+</span><span>    </span><span style="color:#586e75;">pub </span><span style="color:#268bd2;">fn </span><span style="color:#b58900;">ipv4</span><span>() -&gt; </span><span style="color:#268bd2;">Self </span><span>{
+</span><span>        SockProtocol(</span><span style="color:#6c71c4;">8</span><span>)
+</span><span>    }
+</span><span>    </span><span style="color:#586e75;">pub </span><span style="color:#268bd2;">fn </span><span style="color:#b58900;">can_bcm</span><span>() -&gt; </span><span style="color:#268bd2;">Self </span><span>{
+</span><span>        SockProtocol(</span><span style="color:#6c71c4;">2</span><span>)
+</span><span>    }
+</span><span>    </span><span style="color:#93a1a1;">// etc
+</span><span>}
+</span></code></pre>
+<p>Which solves all of these problems, although it deviates from the API conventions found elsewhere in this crate and module. A problem that arises is <a href="https://semver.org/">semver compatability</a>, which mandates that, unless a &quot;major release&quot; is pushed, the API cannot change in a way that will cause any possible previous project to not compile. My <a href="https://github.com/Dev380/nix/blob/int-protocols/src/sys/socket/mod.rs">solution</a> creates a separate struct, <code>SockProtocolInt</code> that allows for any number to be the protocol number, then changes the API to use that instead. Conversion between <code>SockProtocol</code> and <code>SockProtocolInt</code> is handled such that the compiler will automatically convert between the types for code still using <code>SockProtocol</code>. As of writing, my <a href="https://github.com/nix-rust/nix/pull/2068">PR</a> is not merged yet, so I'll be using my git repo for now:</p>
+<pre data-lang="toml" style="background-color:#fdf6e3;color:#657b83;" class="language-toml "><code class="language-toml" data-lang="toml"><span style="color:#268bd2;">-nix </span><span>= { </span><span style="color:#268bd2;">version </span><span>= </span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">0.26.2</span><span style="color:#839496;">&quot;</span><span>, </span><span style="color:#268bd2;">branch </span><span>= </span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">int-protocols</span><span style="color:#839496;">&quot;</span><span>, </span><span style="color:#268bd2;">features </span><span>= [</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">socket</span><span style="color:#839496;">&quot;</span><span>, </span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">uio</span><span style="color:#839496;">&quot;</span><span>] }
+</span><span style="background-color:#ec9489;color:#657b83;">+nix = { git = &quot;https://github.com/Dev380/nix&quot;, branch = &quot;int-protocols&quot;, features = [&quot;socket&quot;, &quot;uio&quot;] }</span><span>
+</span></code></pre>
+<p><hr data-content="back to MY code" \>
+After that slight detour, we can finally create a raw socket to send data from an arbitrary protocol into!</p>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#268bd2;">let</span><span> socket = socket::socket(AddressFamily::Inet, SockType::Raw, SockFlag::empty(), SockProtocolInt(libc::</span><span style="color:#cb4b16;">IPPROTO_ICMP</span><span>)).</span><span style="color:#859900;">unwrap</span><span>();
+</span><span>
+</span></code></pre>
+<p>The <code>Inet</code> address family tells the kernel that this is an IPv4 socket, and the <code>Raw</code> socket type basically means not TCP or UDP. The <code>SockFlag</code>s are just configuration options, and the <code>SockProtocolInt</code> uses the ICMP protocol number from our fork of <code>nix</code>. The ICMP struct from before can be sent:</p>
+<pre style="background-color:#fdf6e3;color:#657b83;"><code><span>socket::sendto(socket, &amp;icmp.as_bytes(), &amp;SockaddrIn::new(1, 1, 1, 1, 0), MsgFlags::empty()).unwrap();
+</span></code></pre>
+<p>Note that the <code>SocketaddrIn</code> is the IP (1.1.1.1) and the port, which is zero for portless protocols like IPv4. For good manners, we should probably close the <a href="https://en.wikipedia.org/wiki/File_descriptor">file descriptor</a> at the end:</p>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span>unistd::close(socket).</span><span style="color:#859900;">unwrap</span><span>();
+</span></code></pre>
+<p>Let's run it!</p>
+<pre style="background-color:#fdf6e3;color:#657b83;"><code><span>Finished dev [unoptimized + debuginfo] target(s) in 0.19s
+</span><span>Running `target/debug/ping`
+</span><span>thread &#39;main&#39; panicked at &#39;called `Result::unwrap()` on an `Err` value: EPERM&#39;, src/main.rs:49:125
+</span><span>note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+</span></code></pre>
+<p>Oh yeah, raw sockets need root to run, because it allows malicious programs to read the traffic of other programs and lets them spam malformed packets at random services in an attempt to get you firewalled. Let's try with <code>sudo -E</code> (which preserves environment variables that the rust package manager needs)</p>
+<pre style="background-color:#fdf6e3;color:#657b83;"><code><span>❯ RUST_BACKTRACE=1 sudo -E cargo run
+</span><span>[sudo] password for alexander: 
+</span><span>    Finished dev [unoptimized + debuginfo] target(s) in 0.00s
+</span><span>     Running `target/debug/ping`
+</span><span>Sending [8, 0, 246, 22, 0, 69, 1, 16
+</span></code></pre>
+<p>I've opened <a href="https://www.tcpdump.org/manpages/tcpdump.1.html">tcpdump</a> (super useful for network programming) and this is the output:</p>
+<pre style="background-color:#fdf6e3;color:#657b83;"><code><span>❯ sudo tcpdump icmp
+</span><span>tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+</span><span>21:48:00.235948 IP Dev380 &gt; one.one.one.one: ICMP echo request, id 69, seq 420, length 12
+</span></code></pre>
+<p>Hm, the identifier and sequence number seem to be what the program specifies, and the total length is correct (8 header bytes and 4 data bytes). Yet, it never detects an echo response, unlike <code>SimplePing</code>, the C implementation I'm testing against! This is where I got stuck in all my previous attempts. However, when looking at the Wikipedia pages for various ICMP-related stuff, I realized the authors used <code>tcpdump</code> in verbose mode - even the command I ran previously told me to use it! So I gave it a try, ran <code>sudo -E cargo run</code> again, and...</p>
+<pre style="background-color:#fdf6e3;color:#657b83;"><code><span>❯ sudo tcpdump icmp -v
+</span><span>21:51:51.873519 IP (tos 0x0, ttl 64, id 52515, offset 0, flags [DF], proto ICMP (1), length 32)
+</span><span>    Dev380 &gt; one.one.one.one: ICMP echo request, id 69, seq 420, length 12 (wrong icmp cksum f616 (-&gt;f210)!)
+</span></code></pre>
+<p><hr data-content="here&#x27;s where I&#x27;m an idiot" \>
+<em>gasp</em></p>
+<p>My checksum is wrong? There's no way this was the problem the whole time - in the past, I've copied checksum algorithms from <a href="https://fasterthanli.me/series/making-our-own-ping/part-12">amos, AKA fasterthanlime</a>, made my own from the spec, let copilot do it for me and, this time, I even used a third-party crate. After searching around for a bit, I found this image from a <a href="https://stackoverflow.com/a/20247802">kind person on stack overflow</a>:
+<img src="/images/icmp_checksum_calculation.png" alt="how to ACTUALLY calculate a checksum" />
+<em>gasp #2</em></p>
+<p>This whole time, I thought the checksum was calculated over the header, when in fact, the data payload should be accounted for too! That's why my checksum is wrong, and my echo request never even reached the server. (Sidenote: confusingly, IPv4 headers only calculate a checksum over their own header, although it makes sense as ICMP is the last layer and the data would not be error-checked by any other layer) Anyway, to calculate a checksum over the data, I'd have to do a weird trick with reference counters that is frequently used in computational graph theory in rust to let <code>IcmpHeader</code> reference <code>Icmp</code>'s data and vice versa, but it would just be simpler to remove <code>IcmpHeader</code> altogether. The revised code just copies the header data logic into <code>Icmp</code>:</p>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#268bd2;">struct </span><span style="color:#b58900;">Icmp </span><span>{
+</span><span>    </span><span style="color:#268bd2;">identifier</span><span>: </span><span style="color:#268bd2;">u16</span><span>,
+</span><span>    </span><span style="color:#268bd2;">sequence</span><span>: </span><span style="color:#268bd2;">u16</span><span>,
+</span><span>    </span><span style="color:#268bd2;">payload</span><span>: </span><span style="color:#859900;">Vec</span><span>&lt;</span><span style="color:#268bd2;">u8</span><span>&gt;,
+</span><span>}
+</span><span>
+</span><span style="color:#268bd2;">impl </span><span style="color:#b58900;">Icmp </span><span>{
+</span><span>    </span><span style="color:#268bd2;">fn </span><span style="color:#b58900;">as_bytes</span><span>(</span><span style="color:#859900;">&amp;</span><span style="color:#268bd2;">self</span><span>) -&gt; [</span><span style="color:#268bd2;">u8</span><span>; </span><span style="color:#6c71c4;">12</span><span>] {
+</span><span>        </span><span style="color:#268bd2;">let </span><span style="color:#586e75;">mut</span><span> bytes = [</span><span style="color:#6c71c4;">0</span><span>; </span><span style="color:#6c71c4;">12</span><span>];
+</span><span>        bytes[</span><span style="color:#6c71c4;">0</span><span>] = </span><span style="color:#cb4b16;">ECHO_REQUEST</span><span>;
+</span><span>
+</span><span>        bytes[</span><span style="color:#6c71c4;">4</span><span style="color:#859900;">..</span><span style="color:#6c71c4;">6</span><span>].</span><span style="color:#859900;">copy_from_slice</span><span>(</span><span style="color:#859900;">&amp;</span><span style="color:#d33682;">self</span><span>.identifier.</span><span style="color:#859900;">to_be_bytes</span><span>());
+</span><span>        bytes[</span><span style="color:#6c71c4;">6</span><span style="color:#859900;">..</span><span style="color:#6c71c4;">8</span><span>].</span><span style="color:#859900;">copy_from_slice</span><span>(</span><span style="color:#859900;">&amp;</span><span style="color:#d33682;">self</span><span>.sequence.</span><span style="color:#859900;">to_be_bytes</span><span>());
+</span><span>        bytes[</span><span style="color:#6c71c4;">8</span><span style="color:#859900;">..</span><span style="color:#6c71c4;">12</span><span>].</span><span style="color:#859900;">copy_from_slice</span><span>(</span><span style="color:#859900;">&amp;</span><span style="color:#d33682;">self</span><span>.payload);
+</span><span>
+</span><span>        </span><span style="color:#93a1a1;">// Setting the checksum
+</span><span>        </span><span style="color:#268bd2;">let</span><span> checksum = internet_checksum::checksum(</span><span style="color:#859900;">&amp;</span><span>bytes);
+</span><span>        bytes[</span><span style="color:#6c71c4;">2</span><span style="color:#859900;">..</span><span style="color:#6c71c4;">4</span><span>].</span><span style="color:#859900;">copy_from_slice</span><span>(</span><span style="color:#859900;">&amp;</span><span>checksum);
+</span><span>
+</span><span>        bytes
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>And finally, for the first time in my life, a simple networking hello world that I wrote has worked:</p>
+<pre style="background-color:#fdf6e3;color:#657b83;"><code><span>❯ sudo tcpdump icmp -v
+</span><span>22:03:30.105781 IP (tos 0x0, ttl 64, id 13577, offset 0, flags [DF], proto ICMP (1), length 32)
+</span><span>    Dev380 &gt; one.one.one.one: ICMP echo request, id 69, seq 420, length 12
+</span><span>22:03:30.112345 IP (tos 0x0, ttl 57, id 38608, offset 0, flags [none], proto ICMP (1), length 32)
+</span><span>    one.one.one.one &gt; Dev380: ICMP echo reply, id 69, seq 420, length 12
+</span></code></pre>
+<p><hr data-content="but we aren&#x27;t done yet" \>
+However, my goal has always been to implement ICMP with the lowest possible before having to physically touch my network card, <a href="https://en.wikipedia.org/wiki/Data_link_layer">OSI layer 2</a> and using the <code>AF_PACKET</code> address type instead of <code>AF_INET</code> (or <code>AddressFamily::Inet</code> in the <code>nix</code> crate). I just started it above the Internet layer because that's what <code>SimplePing</code> does and I figured my problem might have come from an error in the headers of previous layers. Now that I know the problem, it's pretty easy to implement all the other layers - just create structs for each of them, encapsulating higher layers, and finally send it through a truly raw socket, with basically direct access to my network card.</p>
+<p>So, let's get to it! The IP layer simply attaches a header to the ICMP request, or any other higher-level protocol such as TCP (nested headers seems to be a common theme in networking). An IPv4 header is 20 bytes (usually), so I'll begin by making a &quot;blank header&quot;:</p>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#268bd2;">const </span><span style="color:#cb4b16;">BLANK_IP_HEADER</span><span>: [</span><span style="color:#268bd2;">u8</span><span>; </span><span style="color:#6c71c4;">20</span><span>] = [</span><span style="color:#6c71c4;">69</span><span>, </span><span style="color:#6c71c4;">0</span><span>, </span><span style="color:#6c71c4;">0</span><span>, </span><span style="color:#6c71c4;">0</span><span>, </span><span style="color:#6c71c4;">0</span><span>, </span><span style="color:#6c71c4;">0</span><span>, </span><span style="color:#6c71c4;">0</span><span>, </span><span style="color:#6c71c4;">0</span><span>, </span><span style="color:#6c71c4;">64</span><span>, </span><span style="color:#6c71c4;">1</span><span>, </span><span style="color:#6c71c4;">0</span><span>, </span><span style="color:#6c71c4;">0</span><span>, </span><span style="color:#6c71c4;">0</span><span>, </span><span style="color:#6c71c4;">0</span><span>, </span><span style="color:#6c71c4;">0</span><span>, </span><span style="color:#6c71c4;">0</span><span>, </span><span style="color:#6c71c4;">0</span><span>, </span><span style="color:#6c71c4;">0</span><span>, </span><span style="color:#6c71c4;">0</span><span>, </span><span style="color:#6c71c4;">0</span><span>];
+</span></code></pre>
+<p>You can read more about IPv4 headers <a href="https://en.wikipedia.org/wiki/Internet_Protocol_version_4#Header">here</a>, but the interesting fields are these:</p>
+<ul>
+<li>bytes 2-4 [0, 0]: the total length of the packet, including both header and data</li>
+<li>bytes 5-6 [0, 0]: an identification field for fragmentation (when a packet is bigger than 65535 bytes and needs to be split up), which we'll leave at 0 for simplicity</li>
+<li>byte 9 (64): the TTL, or how many devices the packet will pass through before being dropped. It's 128 on windows and usually 64 on linux which is what I'm using</li>
+<li>byte 10 (1): the protocol number (that <code>nix</code> had issues with before), which is 1 for ICMP and 6 for TCP</li>
+<li>byte 10-11 [0, 0]: checksum as in ICMP to fill in later (note that this is over just the header and not the data)</li>
+<li>last 8 bytes: the source IP address, then the destination IP</li>
+</ul>
+<p>We'll also need an Ipv4 packet struct:</p>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#268bd2;">struct </span><span style="color:#b58900;">Ipv4 </span><span>{
+</span><span>    </span><span style="color:#268bd2;">source_ip</span><span>: [</span><span style="color:#268bd2;">u8</span><span>; 4],
+</span><span>    </span><span style="color:#268bd2;">dest_ip</span><span>: [</span><span style="color:#268bd2;">u8</span><span>; 4],
+</span><span>    </span><span style="color:#268bd2;">payload</span><span>: </span><span style="color:#859900;">Vec</span><span>&lt;</span><span style="color:#268bd2;">u8</span><span>&gt;
+</span><span>}
+</span></code></pre>
+<p>The conversion to bytes is similar to ICMP:</p>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#268bd2;">impl </span><span style="color:#b58900;">Ipv4</span><span>{
+</span><span>    </span><span style="color:#268bd2;">fn </span><span style="color:#b58900;">as_bytes</span><span>(</span><span style="color:#859900;">&amp;</span><span style="color:#268bd2;">self</span><span>) -&gt; </span><span style="color:#859900;">Vec</span><span>&lt;</span><span style="color:#268bd2;">u8</span><span>&gt; {
+</span><span>        </span><span style="color:#93a1a1;">// Header
+</span><span>        </span><span style="color:#268bd2;">let </span><span style="color:#586e75;">mut</span><span> bytes = </span><span style="color:#cb4b16;">BLANK_IP_HEADER</span><span>;
+</span><span>        bytes[</span><span style="color:#6c71c4;">12</span><span style="color:#859900;">..</span><span style="color:#6c71c4;">16</span><span>].</span><span style="color:#859900;">copy_from_slice</span><span>(</span><span style="color:#859900;">&amp;</span><span style="color:#d33682;">self</span><span>.source_ip);
+</span><span>        bytes[</span><span style="color:#6c71c4;">16</span><span style="color:#859900;">..</span><span style="color:#6c71c4;">20</span><span>].</span><span style="color:#859900;">copy_from_slice</span><span>(</span><span style="color:#859900;">&amp;</span><span style="color:#d33682;">self</span><span>.dest_ip);
+</span><span>        </span><span style="color:#93a1a1;">// Setting the checksum
+</span><span>        </span><span style="color:#268bd2;">let</span><span> checksum = internet_checksum::checksum(</span><span style="color:#859900;">&amp;</span><span>bytes);
+</span><span>        bytes[</span><span style="color:#6c71c4;">10</span><span style="color:#859900;">..</span><span style="color:#6c71c4;">12</span><span>].</span><span style="color:#859900;">copy_from_slice</span><span>(</span><span style="color:#859900;">&amp;</span><span>checksum);
+</span><span>
+</span><span>        </span><span style="color:#268bd2;">let </span><span style="color:#586e75;">mut</span><span> bytes = bytes.</span><span style="color:#859900;">to_vec</span><span>();
+</span><span>        bytes.</span><span style="color:#859900;">extend</span><span>(</span><span style="color:#d33682;">self</span><span>.payload.</span><span style="color:#859900;">clone</span><span>());
+</span><span>        bytes
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>Finally, we can change the socket to use the ethernet address family and the protocol to IP instead of ICMP.</p>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#268bd2;">let</span><span> socket = socket::socket(AddressFamily::Packet, SockType::Datagram, SockFlag::empty(), SockProtocolInt(libc::</span><span style="color:#cb4b16;">ETH_P_IP</span><span>)).</span><span style="color:#859900;">unwrap</span><span>();
+</span></code></pre>
+<p>The address family is AF_PACKET, one level below the IP layer. The <code>SockType</code> is a datagram because the <a href="https://man7.org/linux/man-pages/man7/packet.7.html">man pages</a> state:</p>
+<blockquote>
+<p>The socket_type is either SOCK_RAW for raw packets including the link-level header or SOCK_DGRAM for cooked packets with the link-level header removed.</p>
+</blockquote>
+<p>The link-level header is the header for the raw packets the kernel sends to a network card, which we haven't implemented yet so it should be omitted. We also need to construct an IP packet to send over the socket:</p>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span>    </span><span style="color:#268bd2;">let</span><span> icmp = Icmp {
+</span><span>        identifier: </span><span style="color:#6c71c4;">69</span><span>,
+</span><span>        sequence: </span><span style="color:#6c71c4;">420</span><span>,
+</span><span>        payload: </span><span style="color:#859900;">vec!</span><span>[</span><span style="color:#6c71c4;">1</span><span>,</span><span style="color:#6c71c4;">2</span><span>,</span><span style="color:#6c71c4;">3</span><span>,</span><span style="color:#6c71c4;">4</span><span>]
+</span><span>    };
+</span><span>    </span><span style="color:#268bd2;">let</span><span> ip = Ipv4 {
+</span><span>        source_ip: [</span><span style="color:#6c71c4;">192</span><span>, </span><span style="color:#6c71c4;">168</span><span>, </span><span style="color:#6c71c4;">50</span><span>, </span><span style="color:#6c71c4;">161</span><span>],
+</span><span>        dest_ip: [</span><span style="color:#6c71c4;">1</span><span>, </span><span style="color:#6c71c4;">1</span><span>, </span><span style="color:#6c71c4;">1</span><span>, </span><span style="color:#6c71c4;">1</span><span>],
+</span><span>        payload: icmp.</span><span style="color:#859900;">as_bytes</span><span>()
+</span><span>    };
+</span></code></pre>
+<p>The IP address is my local, private IP and not the one you would see by searching &quot;what is my IP&quot; because of <a href="https://en.wikipedia.org/wiki/Network_address_translation">NAT</a>. On GNU/Linux, you can get the info like this:</p>
+<pre style="background-color:#fdf6e3;color:#657b83;"><code><span>❯ ip a | grep inet
+</span><span>    inet 127.0.0.1/8 scope host lo
+</span><span>    inet6 ::1/128 scope host 
+</span><span>    inet 192.168.50.161/24 brd 192.168.50.255 scope global dynamic noprefixroute wlan0
+</span></code></pre>
+<p>A MAC address is needed because the kernel needs to know which device on the LAN to send a packet to for AF_PACKET. While an IP address tells you where your data should end up, the MAC addres says where the packet should go immediately (ie the router). For this, <code>nix::sys::socket::LinkAddr</code> can be used. Unfortunately, they don't provide a safe constructor, so I'll need to convert it with <code>from_raw</code> using the format found in <code>packet(7)</code>'s man pages':</p>
+<pre style="background-color:#fdf6e3;color:#657b83;"><code><span>struct sockaddr_ll {
+</span><span>    unsigned short sll_family;   /* Always AF_PACKET */
+</span><span>    unsigned short sll_protocol; /* Physical-layer protocol */
+</span><span>    int            sll_ifindex;  /* Interface number */
+</span><span>    unsigned short sll_hatype;   /* ARP hardware type */
+</span><span>    unsigned char  sll_pkttype;  /* Packet type */
+</span><span>    unsigned char  sll_halen;    /* Length of address */
+</span><span>    unsigned char  sll_addr[8];  /* Physical-layer address */
+</span><span>};
+</span></code></pre>
+<p>Now, here's the confusing part: there's no way to create the <code>nix::socket::LinkAddr</code> struct, apart from an unsafe constructor that takes a pointer to a <code>nix::sockaddr</code>, which is supposed to be cast from a <code>libc::sockaddr</code>. With the help of <a href="https://github.com/nyantec/afpacket">afpacket</a>, I figured out that I'll have to do what one would do in C to get this to work:</p>
+<ol>
+<li>Create a <code>libc::sockaddr_storage</code>, an intermediary type:</li>
+</ol>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#268bd2;">let </span><span style="color:#586e75;">mut</span><span> storage: sockaddr_storage = std::mem::zeroed();
+</span></code></pre>
+<ol start="2">
+<li>Cast it to a raw pointer of type <code>sockaddr_ll</code> so we can set the requisite fields:</li>
+</ol>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#268bd2;">let</span><span> addr: </span><span style="color:#586e75;">*mut</span><span> sockaddr_ll = </span><span style="color:#859900;">&amp;</span><span style="color:#586e75;">mut</span><span> storage </span><span style="color:#859900;">as </span><span style="color:#586e75;">*mut</span><span> sockaddr_storage </span><span style="color:#859900;">as </span><span style="color:#586e75;">*mut</span><span> sockaddr_ll;
+</span></code></pre>
+<ol start="3">
+<li>Set the fields we want:</li>
+</ol>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span>(*addr).sll_family = libc::</span><span style="color:#cb4b16;">AF_PACKET </span><span style="color:#859900;">as </span><span style="color:#268bd2;">u16</span><span>;
+</span><span>(*addr).sll_protocol = (libc::</span><span style="color:#cb4b16;">ETH_P_IP </span><span style="color:#859900;">as </span><span style="color:#268bd2;">u16</span><span>).</span><span style="color:#859900;">to_be</span><span>();
+</span><span>(*addr).sll_addr = [</span><span style="color:#6c71c4;">4</span><span>, </span><span style="color:#6c71c4;">212</span><span>, </span><span style="color:#6c71c4;">196</span><span>, </span><span style="color:#6c71c4;">26</span><span>, </span><span style="color:#6c71c4;">11</span><span>, </span><span style="color:#6c71c4;">168</span><span>, </span><span style="color:#6c71c4;">0</span><span>, </span><span style="color:#6c71c4;">0</span><span>];
+</span><span>(*addr).sll_halen = </span><span style="color:#6c71c4;">6</span><span>;
+</span><span>(*addr).sll_ifindex = </span><span style="color:#6c71c4;">3</span><span>;
+</span></code></pre>
+<p>I got the <code>ifindex</code> (index of my network card) using <code>ip link show</code>, and the <code>halen</code> is the length of my router's MAC address (which I got using <code>ip neigh</code>).
+4. Cast the intermediary <code>sockaddr_storage</code> back to the useful <code>libc::sockaddr</code></p>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#268bd2;">let</span><span> saddr = </span><span style="color:#859900;">&amp;</span><span>storage </span><span style="color:#859900;">as </span><span style="color:#268bd2;">*const</span><span> sockaddr_storage </span><span style="color:#859900;">as </span><span style="color:#268bd2;">*const </span><span>libc::sockaddr;
+</span></code></pre>
+<ol start="5">
+<li>Finally, cast the <code>libc::sockaddr</code> to a <code>nix::sockaddr</code> and return it (note that <code>nix</code> does not use <code>#[repr(C)]</code> for their <code>sockaddr</code>, which is fine for us, but they should really do it for coompatability with <code>libc</code>):</li>
+</ol>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span>LinkAddr::from_raw(saddr </span><span style="color:#859900;">as </span><span style="color:#268bd2;">*const</span><span> sockaddr, </span><span style="color:#859900;">None</span><span>).</span><span style="color:#859900;">unwrap</span><span>()
+</span></code></pre>
+<p>Creating the AF_PACKET socket and sending the data:</p>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#268bd2;">let</span><span> mac_address = </span><span style="color:#586e75;">unsafe </span><span>{
+</span><span>    </span><span style="color:#268bd2;">let </span><span style="color:#586e75;">mut</span><span> storage: sockaddr_storage = std::mem::zeroed();
+</span><span>    </span><span style="color:#268bd2;">let</span><span> addr: </span><span style="color:#586e75;">*mut</span><span> sockaddr_ll = </span><span style="color:#859900;">&amp;</span><span style="color:#586e75;">mut</span><span> storage </span><span style="color:#859900;">as </span><span style="color:#586e75;">*mut</span><span> sockaddr_storage </span><span style="color:#859900;">as </span><span style="color:#586e75;">*mut</span><span> sockaddr_ll;
+</span><span>    (*addr).sll_family = libc::</span><span style="color:#cb4b16;">AF_PACKET </span><span style="color:#859900;">as </span><span style="color:#268bd2;">u16</span><span>;
+</span><span>    (*addr).sll_protocol = (libc::</span><span style="color:#cb4b16;">ETH_P_IP </span><span style="color:#859900;">as </span><span style="color:#268bd2;">u16</span><span>).</span><span style="color:#859900;">to_be</span><span>();
+</span><span>    (*addr).sll_addr = [</span><span style="color:#6c71c4;">4</span><span>, </span><span style="color:#6c71c4;">212</span><span>, </span><span style="color:#6c71c4;">196</span><span>, </span><span style="color:#6c71c4;">26</span><span>, </span><span style="color:#6c71c4;">11</span><span>, </span><span style="color:#6c71c4;">168</span><span>, </span><span style="color:#6c71c4;">0</span><span>, </span><span style="color:#6c71c4;">0</span><span>];
+</span><span>    (*addr).sll_halen = </span><span style="color:#6c71c4;">6</span><span>;
+</span><span>    (*addr).sll_ifindex = </span><span style="color:#6c71c4;">3</span><span>;
+</span><span>    </span><span style="color:#268bd2;">let</span><span> saddr = </span><span style="color:#859900;">&amp;</span><span>storage </span><span style="color:#859900;">as </span><span style="color:#268bd2;">*const</span><span> sockaddr_storage </span><span style="color:#859900;">as </span><span style="color:#268bd2;">*const </span><span>libc::sockaddr;
+</span><span>    LinkAddr::from_raw(saddr </span><span style="color:#859900;">as </span><span style="color:#268bd2;">*const</span><span> sockaddr, </span><span style="color:#859900;">None</span><span>).</span><span style="color:#859900;">unwrap</span><span>()
+</span><span>};
+</span><span>
+</span><span style="color:#268bd2;">let</span><span> socket = socket::socket(
+</span><span>    AddressFamily::Packet,
+</span><span>    SockType::Datagram,
+</span><span>    SockFlag::empty(),
+</span><span>    SockProtocolInt(libc::</span><span style="color:#cb4b16;">ETH_P_IP</span><span>),
+</span><span>)
+</span><span>.</span><span style="color:#859900;">unwrap</span><span>();
+</span><span>socket::sendto(socket, </span><span style="color:#859900;">&amp;</span><span>ip.</span><span style="color:#859900;">as_bytes</span><span>(), </span><span style="color:#859900;">&amp;</span><span>mac_address, MsgFlags::empty()).</span><span style="color:#859900;">unwrap</span><span>();
+</span></code></pre>
+<p>And, when running the program, <code>tcpdump</code> says...</p>
+<pre style="background-color:#fdf6e3;color:#657b83;"><code><span>11:56:30.737419 b0:7d:64:57:83:84 &gt; 04:d4:c4:1a:0b:a8, ethertype IPv4 (0x0800), length 46: (tos 0x0, ttl 64, id 0, offset 0, flags [none], proto ICMP (1), length 32)
+</span><span>    192.168.50.161 &gt; 1.1.1.1: ICMP echo request, id 69, seq 420, length 12 (wrong icmp cksum f616 (-&gt;f210)!)
+</span><span>    0x0000:  4500 0020 0000 0000 4001 8592 c0a8 32a1
+</span><span>    0x0010:  0101 0101 0800 f616 0045 01a4 0102 0304
+</span></code></pre>
+<p>Woopsies, it looks like I screwed up when writing the <code>Icmp</code> struct, let's fix that:</p>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#268bd2;">impl </span><span style="color:#b58900;">Icmp </span><span>{
+</span><span>    </span><span style="color:#268bd2;">fn </span><span style="color:#b58900;">as_bytes</span><span>(</span><span style="color:#859900;">&amp;</span><span style="color:#268bd2;">self</span><span>) -&gt; </span><span style="color:#859900;">Vec</span><span>&lt;</span><span style="color:#268bd2;">u8</span><span>&gt; {
+</span><span>        </span><span style="color:#93a1a1;">// Header
+</span><span>        </span><span style="color:#268bd2;">let </span><span style="color:#586e75;">mut</span><span> bytes = [</span><span style="color:#6c71c4;">0</span><span>; </span><span style="color:#6c71c4;">8</span><span>];
+</span><span>        bytes[</span><span style="color:#6c71c4;">0</span><span>] = </span><span style="color:#cb4b16;">ECHO_REQUEST</span><span>;
+</span><span>        bytes[</span><span style="color:#6c71c4;">4</span><span style="color:#859900;">..</span><span style="color:#6c71c4;">6</span><span>].</span><span style="color:#859900;">copy_from_slice</span><span>(</span><span style="color:#859900;">&amp;</span><span style="color:#d33682;">self</span><span>.identifier.</span><span style="color:#859900;">to_be_bytes</span><span>());
+</span><span>        bytes[</span><span style="color:#6c71c4;">6</span><span style="color:#859900;">..</span><span style="color:#6c71c4;">8</span><span>].</span><span style="color:#859900;">copy_from_slice</span><span>(</span><span style="color:#859900;">&amp;</span><span style="color:#d33682;">self</span><span>.sequence.</span><span style="color:#859900;">to_be_bytes</span><span>());
+</span><span>
+</span><span>        </span><span style="color:#268bd2;">let </span><span style="color:#586e75;">mut</span><span> bytes = bytes.</span><span style="color:#859900;">to_vec</span><span>();
+</span><span>        bytes.</span><span style="color:#859900;">extend</span><span>(</span><span style="color:#d33682;">self</span><span>.payload.</span><span style="color:#859900;">clone</span><span>());
+</span><span>
+</span><span>        </span><span style="color:#93a1a1;">// Setting the checksum
+</span><span>        </span><span style="color:#268bd2;">let</span><span> checksum = internet_checksum::checksum(</span><span style="color:#859900;">&amp;</span><span>bytes);
+</span><span>        bytes[</span><span style="color:#6c71c4;">2</span><span style="color:#859900;">..</span><span style="color:#6c71c4;">4</span><span>].</span><span style="color:#859900;">copy_from_slice</span><span>(</span><span style="color:#859900;">&amp;</span><span>checksum);
+</span><span>        bytes
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>I forgot to move the checksum setting part to the very end of the code, silly me.</p>
+<p>Anyway, it works now!</p>
+<pre style="background-color:#fdf6e3;color:#657b83;"><code><span>11:58:18.891549 b0:7d:64:57:83:84 &gt; 04:d4:c4:1a:0b:a8, ethertype IPv4 (0x0800), length 46: (tos 0x0, ttl 64, id 0, offset 0, flags [none], proto ICMP (1), length 32)
+</span><span>    192.168.50.161 &gt; 1.1.1.1: ICMP echo request, id 69, seq 420, length 12
+</span><span>    0x0000:  4500 0020 0000 0000 4001 8592 c0a8 32a1
+</span><span>    0x0010:  0101 0101 0800 f210 0045 01a4 0102 0304
+</span><span>11:58:18.897095 04:d4:c4:1a:0b:a8 &gt; b0:7d:64:57:83:84, ethertype IPv4 (0x0800), length 60: (tos 0x0, ttl 57, id 47327, offset 0, flags [none], proto ICMP (1), length 32)
+</span><span>    1.1.1.1 &gt; 192.168.50.161: ICMP echo reply, id 69, seq 420, length 12
+</span><span>    0x0000:  4500 0020 b8df 0000 3901 d3b2 0101 0101
+</span><span>    0x0010:  c0a8 32a1 0000 fa10 0045 01a4 0102 0304
+</span><span>    0x0020:  0000 0000 0000 0000 0000 0000 0000
+</span><span>
+</span></code></pre>
+<p><hr data-content="one more layer of the onion" \>
+One more thing though! We wrote the IPv4/layer 3 headers ourselves. However, there's still one more of abstraction the kernel handles for us - the ethernet/layer 2 headers, which a network card uses to know who to physically send the raw bits to (in most cases, the router). The kernel wrote it for us because, in the <code>sockaddr_ll</code> struct, we gave the kernel the network interface number and the router's mac address, which are enough to determine the source and destination mac address. Technically, an ethernet frame (a frame is what a layer 2 packet is called) looks like this:
+<img src="/images/ethernet_frame_full_structure.png" alt="Nerd version of an ethernet frame" />
+However, most of this is unnecessary, as the device driver/network card will deal with the details for us. In fact, it already does some work by translating our ethernet frames into WiFi (802.11) frames. Fasterthanlime's <a href="https://fasterthanli.me/series/making-our-own-ping/part-9">article</a> gives a better visualization of the ethernet frames we'll actually have to deal with:
+<img src="/images/fasterthanlime_ethernet_frame.png" alt="realistic ethernet frame, credit to amos/fasterthanlime" />
+We'll just have to append a 14 byte header, with 12 bytes for the destination/source MAC addresses and 2 bytes being [8, 0] (0x0800, IPv4's protocol number, in big endian).</p>
+<p>As always, we'll need a struct:</p>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#268bd2;">struct </span><span style="color:#b58900;">Ethernet </span><span>{
+</span><span>    </span><span style="color:#268bd2;">dest_mac</span><span>: [</span><span style="color:#268bd2;">u8</span><span>; 6],
+</span><span>    </span><span style="color:#268bd2;">source_mac</span><span>: [</span><span style="color:#268bd2;">u8</span><span>; 6],
+</span><span>    </span><span style="color:#268bd2;">payload</span><span>: </span><span style="color:#859900;">Vec</span><span>&lt;</span><span style="color:#268bd2;">u8</span><span>&gt;,
+</span><span>}
+</span></code></pre>
+<p>And a relatively straightforward <code>as_bytes</code> method.</p>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#268bd2;">impl </span><span style="color:#b58900;">Ethernet </span><span>{
+</span><span>    </span><span style="color:#268bd2;">fn </span><span style="color:#b58900;">as_bytes</span><span>(</span><span style="color:#859900;">&amp;</span><span style="color:#268bd2;">self</span><span>) -&gt; </span><span style="color:#859900;">Vec</span><span>&lt;</span><span style="color:#268bd2;">u8</span><span>&gt; {
+</span><span>        </span><span style="color:#268bd2;">let </span><span style="color:#586e75;">mut</span><span> bytes = [</span><span style="color:#6c71c4;">0</span><span>; </span><span style="color:#6c71c4;">14</span><span>];
+</span><span>        </span><span style="color:#93a1a1;">// Set IPv4 ethertype
+</span><span>        bytes[</span><span style="color:#6c71c4;">12</span><span style="color:#859900;">..</span><span style="color:#6c71c4;">14</span><span>].</span><span style="color:#859900;">copy_from_slice</span><span>(</span><span style="color:#859900;">&amp;</span><span>[</span><span style="color:#6c71c4;">8</span><span>, </span><span style="color:#6c71c4;">0</span><span>]);
+</span><span>        </span><span style="color:#93a1a1;">// Copy MAC addresses
+</span><span>        bytes[</span><span style="color:#6c71c4;">0</span><span style="color:#859900;">..</span><span style="color:#6c71c4;">6</span><span>].</span><span style="color:#859900;">copy_from_slice</span><span>(</span><span style="color:#859900;">&amp;</span><span style="color:#d33682;">self</span><span>.dest_mac);
+</span><span>        bytes[</span><span style="color:#6c71c4;">6</span><span style="color:#859900;">..</span><span style="color:#6c71c4;">12</span><span>].</span><span style="color:#859900;">copy_from_slice</span><span>(</span><span style="color:#859900;">&amp;</span><span style="color:#d33682;">self</span><span>.source_mac);
+</span><span>        </span><span style="color:#93a1a1;">// Payload
+</span><span>        </span><span style="color:#268bd2;">let </span><span style="color:#586e75;">mut</span><span> bytes = bytes.</span><span style="color:#859900;">to_vec</span><span>();
+</span><span>        bytes.</span><span style="color:#859900;">extend</span><span>(</span><span style="color:#d33682;">self</span><span>.payload.</span><span style="color:#859900;">clone</span><span>());
+</span><span>        bytes
+</span><span>    }
+</span><span>}
+</span></code></pre>
+<p>There's no checksum this time! It's called the internet checksum and not the ethernet checksum after all.</p>
+<p>I can find my WiFi card's MAC address from all the <code>tcpdump</code> output I've been looking at, or just by using <code>ip addr</code>. </p>
+<p>After constructing an <code>Ethernet</code> struct</p>
+<pre data-lang="rust" style="background-color:#fdf6e3;color:#657b83;" class="language-rust "><code class="language-rust" data-lang="rust"><span style="color:#268bd2;">let</span><span> ethernet = Ethernet {
+</span><span>    dest_mac: [</span><span style="color:#6c71c4;">4</span><span>, </span><span style="color:#6c71c4;">212</span><span>, </span><span style="color:#6c71c4;">196</span><span>, </span><span style="color:#6c71c4;">26</span><span>, </span><span style="color:#6c71c4;">11</span><span>, </span><span style="color:#6c71c4;">168</span><span>],
+</span><span>    source_mac: [</span><span style="color:#6c71c4;">176</span><span>, </span><span style="color:#6c71c4;">125</span><span>, </span><span style="color:#6c71c4;">100</span><span>, </span><span style="color:#6c71c4;">87</span><span>, </span><span style="color:#6c71c4;">131</span><span>, </span><span style="color:#6c71c4;">132</span><span>],
+</span><span>    payload: ip.</span><span style="color:#859900;">as_bytes</span><span>(),
+</span><span>};
+</span></code></pre>
+<p>and switching the socket type to a raw socket, so it expects the ethernet header:</p>
+<pre style="background-color:#fdf6e3;color:#657b83;"><code><span>let socket = socket::socket(
+</span><span>    AddressFamily::Packet,
+</span><span>    SockType::Raw,
+</span><span>    SockFlag::empty(),
+</span><span>    SockProtocolInt(libc::ETH_P_IP),
+</span><span>)
+</span><span>.unwrap();
+</span></code></pre>
+<p>It should work...</p>
+<pre style="background-color:#fdf6e3;color:#657b83;"><code><span>12:17:13.792561 b0:7d:64:57:83:84 &gt; 04:d4:c4:1a:0b:a8, ethertype IPv4 (0x0800), length 46: (tos 0x0, ttl 64, id 0, offset 0, flags [none], proto ICMP (1), length 32)
+</span><span>    192.168.50.161 &gt; 1.1.1.1: ICMP echo request, id 69, seq 420, length 12
+</span><span>    0x0000:  4500 0020 0000 0000 4001 8592 c0a8 32a1
+</span><span>    0x0010:  0101 0101 0800 f210 0045 01a4 0102 0304
+</span><span>12:17:13.798852 04:d4:c4:1a:0b:a8 &gt; b0:7d:64:57:83:84, ethertype IPv4 (0x0800), length 60: (tos 0x0, ttl 57, id 50958, offset 0, flags [none], proto ICMP (1), length 32)
+</span><span>    1.1.1.1 &gt; 192.168.50.161: ICMP echo reply, id 69, seq 420, length 12
+</span><span>    0x0000:  4500 0020 c70e 0000 3901 c583 0101 0101
+</span><span>    0x0010:  c0a8 32a1 0000 fa10 0045 01a4 0102 0304
+</span><span>    0x0020:  0000 0000 0000 0000 0000 0000 0000
+</span><span>
+</span></code></pre>
+<p>And according to <code>tcpdump</code>, it does!</p>
+<p>Thanks for reading, don't miss my next article where I'll be making a port scanner with raw sockets :D</p>
+<p><hr data-content="addendum" \>
+After I switched out the hardcoded values for automatic detection, I've published the code!</p>
+<p>Repo <a href="https://github.com/Dev380/simpleping-rust">here</a></p>
+
+
+            </main>
+            <footer>
+                
+<script src="https://giscus.app/client.js"
+        data-repo="Dev380/Dev380.github.io"
+        data-repo-id="R_kgDOJ11zZw"
+        data-category="Comments"
+        data-category-id="DIC_kwDOJ11zZ84CXkg-"
+        data-mapping="pathname"
+        data-strict="0"
+        data-reactions-enabled="1"
+        data-emit-metadata="0"
+        data-input-position="top"
+        data-theme="light"
+        data-lang="en"
+        data-loading="lazy"
+        crossorigin="anonymous"
+        async>
+</script>
+<p class="taxonomies">
+
+</p>
+
+                
+            </footer>
+        </div>
+    </body>
+</html>
+        

