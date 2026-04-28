@@ -1679,6 +1679,8 @@ pub fn process_server_netty_ping(packet: &mut [u8]) -> Option<NettyPingResponse>
 
 The transmitting and receiving is easy from there - the most interesting part is getting around the lack of concurrent transmitting in the socket api using parking synchronization (so just a glorified dataless mutex). This is not an issue with receiving because (at least with ethernet) receivers are physically separate cables so concurrent use is allowed.
 
+Code available [here](https://github.com/Dev380/jumboscan).
+
 *Not continued! - I don't see a point to finishing unless someone wants to buy me a VPS to join the hundreds of servers scanning Minecraft servers already, but you're welcome to try completing it - all the "hard parts" are done.*
 
 {{ hr(data_content="future ideas") }}
