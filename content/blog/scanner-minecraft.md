@@ -4,7 +4,7 @@ date = 2023-07-12
 template = "blog.html"
 +++
 
-*This continues [rewriting ping in rust](blog/rewriting-ping-rust/), please read that first*
+*This continues [rewriting ping in rust](/blog/rewriting-ping-rust/), please read that first*
 
 Raw sockets are interesting because they bypass most of the overhead of establishing a TCP connection, making efficient scanners possible, such as [masscan](https://github.com/robertdavidgraham/masscan/), that can scan the entire Internet in a reasonable amount of time. Of interest to me is open Minecraft servers - how could one scan the entire Internet for open port 25565 (Minecraft's port) IPs? This idea has been done to death, and many scanners are actively looking for servers on the open Internet right now. However, writing my own in Rust sounds like it would be an interesting experience.
 
